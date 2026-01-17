@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
-import type { ReplayFrame, DroneState } from '../models/types'
+import type { ReplayFrame, EventLogEntry } from '../models/types'
 import { getMissionFrames } from '../data/missionGenerator'
 
 export type ReplaySpeed = 1 | 2 | 4
@@ -12,6 +12,7 @@ export interface ReplayState {
   totalTime: number
   positionHistory: Array<{ x: number; y: number }>
   altitudeHistory: Array<{ time: number; z: number }>
+  accumulatedEvents: EventLogEntry[]
   play: () => void
   pause: () => void
   reset: () => void
@@ -37,8 +38,10 @@ export function useReplayEngine(): ReplayState {
   // Position and altitude history
   const posHistoryRef = useRef<Array<{ x: number; y: number }>>([])
   const altHistoryRef = useRef<Array<{ time: number; z: number }>>([])
+  const accEventsRef = useRef<EventLogEntry[]>([])
   const [positionHistory, setPositionHistory] = useState<Array<{ x: number; y: number }>>([])
   const [altitudeHistory, setAltitudeHistory] = useState<Array<{ time: number; z: number }>>([])
+  const [accumulatedEvents, setAccumulatedEvents] = useState<EventLogEntry[]>([])
   const [currentFrameData, setCurrentFrameData] = useState<ReplayFrame | null>(null)
 
   // Load frames once
@@ -96,6 +99,15 @@ export function useReplayEngine(): ReplayState {
           }
         }
 
+        // Accumulate events
+        if (frame.events.length > 0) {
+          accEventsRef.current = [...accEventsRef.current, ...frame.events]
+          if (accEventsRef.current.length > 100) {
+            accEventsRef.current = accEventsRef.current.slice(-100)
+          }
+          setAccumulatedEvents([...accEventsRef.current])
+        }
+
         setFrameIndex(newIdx)
         setCurrentFrameData(frame)
         setPositionHistory([...posHistoryRef.current])
@@ -132,10 +144,12 @@ export function useReplayEngine(): ReplayState {
     frameIndexRef.current = 0
     posHistoryRef.current = []
     altHistoryRef.current = []
+    accEventsRef.current = []
     accumulatedTimeRef.current = 0
     setFrameIndex(0)
     setPositionHistory([])
     setAltitudeHistory([])
+    setAccumulatedEvents([])
     if (frames.current.length > 0) {
       setCurrentFrameData(frames.current[0])
     }
@@ -161,6 +175,13 @@ export function useReplayEngine(): ReplayState {
       .slice(altHistStart, newIdx + 1)
       .filter((_, i) => i % 5 === 0)
       .map(f => ({ time: f.time, z: f.drone.z }))
+
+    // Rebuild accumulated events up to this frame
+    accEventsRef.current = frames.current
+      .slice(0, newIdx + 1)
+      .flatMap(f => f.events)
+      .slice(-100)
+    setAccumulatedEvents([...accEventsRef.current])
 
     setFrameIndex(newIdx)
     if (frames.current[newIdx]) {
@@ -191,6 +212,7 @@ export function useReplayEngine(): ReplayState {
     totalTime,
     positionHistory,
     altitudeHistory,
+    accumulatedEvents,
     play,
     pause,
     reset,

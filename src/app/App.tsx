@@ -80,7 +80,7 @@ export function App() {
               Telemetry Dashboard
             </div>
             <div style={{ height: 'calc(100% - 25px)', overflow: 'hidden' }}>
-              {replay.currentFrame ? <TelemetryPanel frame={replay.currentFrame} /> : <Placeholder label="Telemetry" />}
+              {replay.currentFrame ? <TelemetryPanel frame={replay.currentFrame} accumulatedEvents={replay.accumulatedEvents} /> : <Placeholder label="Telemetry" />}
             </div>
           </div>
           {/* Zoom Panel - 35% of right column */}

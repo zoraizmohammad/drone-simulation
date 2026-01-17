@@ -1,9 +1,10 @@
-import type { ReplayFrame } from '../../models/types'
+import type { ReplayFrame, EventLogEntry } from '../../models/types'
 import { getPhaseColor } from '../../app/App'
 import { useRef, useEffect } from 'preact/hooks'
 
 interface Props {
   frame: ReplayFrame
+  accumulatedEvents: EventLogEntry[]
 }
 
 function Row({ label, value, color, unit }: { label: string; value: string; color?: string; unit?: string }) {
@@ -87,7 +88,7 @@ function StatusDot({ active, color }: { active: boolean; color: string }) {
   )
 }
 
-export function TelemetryPanel({ frame }: Props) {
+export function TelemetryPanel({ frame, accumulatedEvents }: Props) {
   const { drone, sensor, mission, camera } = frame
   const phaseColor = getPhaseColor(mission.phase)
   const speed = Math.sqrt(drone.vx ** 2 + drone.vy ** 2)
@@ -110,8 +111,7 @@ export function TelemetryPanel({ frame }: Props) {
     }
   }
 
-  // Accumulate event log from frames
-  const allEvents = frame.events
+  const allEvents = accumulatedEvents.length > 0 ? accumulatedEvents : frame.events
 
   return (
     <div style={{
