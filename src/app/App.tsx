@@ -52,21 +52,21 @@ export function App() {
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
         {/* Left column - 60% */}
         <div style={{ width: '60%', display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid #1e3a5f' }}>
-          {/* Top-Down View - 62% of left column */}
-          <div style={{ flex: '0 0 62%', overflow: 'hidden', borderBottom: '1px solid #1e3a5f' }}>
-            <div style={{ padding: '4px 10px', fontSize: '10px', color: '#64748b', letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid #0f2744' }}>
+          {/* Top-Down View - flex 62 */}
+          <div style={{ flex: 62, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderBottom: '1px solid #1e3a5f' }}>
+            <div style={{ flexShrink: 0, padding: '4px 10px', fontSize: '10px', color: '#64748b', letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid #0f2744' }}>
               Top-Down Mission View
             </div>
-            <div style={{ height: 'calc(100% - 25px)', overflow: 'hidden' }}>
+            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
               {replay.currentFrame ? <TopDownView frame={replay.currentFrame} positionHistory={replay.positionHistory} /> : <Placeholder label="Top-Down View" />}
             </div>
           </div>
-          {/* Side View - 38% of left column */}
-          <div style={{ flex: '0 0 38%', overflow: 'hidden' }}>
-            <div style={{ padding: '4px 10px', fontSize: '10px', color: '#64748b', letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid #0f2744' }}>
+          {/* Side View - flex 38 */}
+          <div style={{ flex: 38, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ flexShrink: 0, padding: '4px 10px', fontSize: '10px', color: '#64748b', letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid #0f2744' }}>
               Altitude / Side View
             </div>
-            <div style={{ height: 'calc(100% - 25px)', overflow: 'hidden' }}>
+            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
               {replay.currentFrame ? <SideView frame={replay.currentFrame} altitudeHistory={replay.altitudeHistory} /> : <Placeholder label="Side View" />}
             </div>
           </div>
@@ -74,21 +74,21 @@ export function App() {
 
         {/* Right column - 40% */}
         <div style={{ width: '40%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {/* Telemetry Panel - 65% of right column */}
-          <div style={{ flex: '0 0 65%', overflow: 'hidden', borderBottom: '1px solid #1e3a5f' }}>
-            <div style={{ padding: '4px 10px', fontSize: '10px', color: '#64748b', letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid #0f2744' }}>
+          {/* Telemetry Panel - flex 65 */}
+          <div style={{ flex: 65, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderBottom: '1px solid #1e3a5f' }}>
+            <div style={{ flexShrink: 0, padding: '4px 10px', fontSize: '10px', color: '#64748b', letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid #0f2744' }}>
               Telemetry Dashboard
             </div>
-            <div style={{ height: 'calc(100% - 25px)', overflow: 'hidden' }}>
+            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
               {replay.currentFrame ? <TelemetryPanel frame={replay.currentFrame} accumulatedEvents={replay.accumulatedEvents} /> : <Placeholder label="Telemetry" />}
             </div>
           </div>
-          {/* Zoom Panel - 35% of right column */}
-          <div style={{ flex: '0 0 35%', overflow: 'hidden' }}>
-            <div style={{ padding: '4px 10px', fontSize: '10px', color: '#64748b', letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid #0f2744' }}>
+          {/* Zoom Panel - flex 35 */}
+          <div style={{ flex: 35, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ flexShrink: 0, padding: '4px 10px', fontSize: '10px', color: '#64748b', letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid #0f2744' }}>
               Camera / Flower Analysis
             </div>
-            <div style={{ height: 'calc(100% - 25px)', overflow: 'hidden' }}>
+            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
               {replay.currentFrame ? <ZoomPanel frame={replay.currentFrame} /> : <Placeholder label="Zoom Panel" />}
             </div>
           </div>

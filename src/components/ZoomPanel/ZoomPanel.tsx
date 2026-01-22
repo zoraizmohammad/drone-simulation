@@ -6,8 +6,8 @@ interface Props {
   frame: ReplayFrame
 }
 
-const W = 320
-const H = 210
+const W = 500
+const H = 340
 
 function seededRng(seed: number) {
   let s = seed
@@ -69,27 +69,27 @@ function MiniFlower({
   )
 }
 
-// Grid of small flowers for background/scanning view
+// Grid of small flowers spread across the 500×340 viewport
 function FlowerGrid({ opacity = 1, highlightId = null }: { opacity?: number; highlightId?: string | null }) {
   const positions = [
-    { x: 52, y: 72 }, { x: 130, y: 60 }, { x: 208, y: 75 }, { x: 275, y: 65 },
-    { x: 80, y: 148 }, { x: 155, y: 158 }, { x: 235, y: 145 }, { x: 300, y: 155 },
+    { x: 65,  y: 105 }, { x: 175, y: 88  }, { x: 300, y: 110 }, { x: 420, y: 95  },
+    { x: 95,  y: 240 }, { x: 210, y: 255 }, { x: 340, y: 238 }, { x: 445, y: 250 },
   ]
   return (
     <g opacity={opacity}>
       {FLOWER_CLUSTERS.slice(0, 8).map((f, i) => {
-        const pos = positions[i] || { x: 50 + i * 40, y: 100 }
+        const pos = positions[i] || { x: 60 + i * 55, y: 160 }
         const isHighlight = highlightId === f.id
         return (
           <g key={f.id}>
             {isHighlight && (
-              <circle cx={pos.x} cy={pos.y} r={28} fill={f.color} opacity={0.12} />
+              <circle cx={pos.x} cy={pos.y} r={40} fill={f.color} opacity={0.15} />
             )}
             <MiniFlower
-              cx={pos.x} cy={pos.y} scale={0.65}
+              cx={pos.x} cy={pos.y} scale={0.9}
               color={f.color} accentColor={f.accentColor}
               rngSeed={parseInt(f.id.replace('f', '')) * 17}
-              opacity={isHighlight ? 1 : 0.6}
+              opacity={isHighlight ? 1 : 0.7}
             />
           </g>
         )
@@ -139,7 +139,8 @@ export function ZoomPanel({ frame }: Props) {
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="100%"
-      style={{ display: 'block', background: '#050d18' }}>
+      preserveAspectRatio="xMidYMid meet"
+      style={{ display: 'block', background: '#020617' }}>
       <defs>
         <filter id="zpGlow" x="-60%" y="-60%" width="220%" height="220%">
           <feGaussianBlur stdDeviation="3.5" result="b" />
@@ -254,8 +255,8 @@ export function ZoomPanel({ frame }: Props) {
           {/* Detection rings growing on visible flowers */}
           {sensor.flowersInView > 0 && FLOWER_CLUSTERS.slice(0, sensor.flowersInView + 1).map((f, i) => {
             const positions = [
-              { x: 52, y: 72 }, { x: 130, y: 60 }, { x: 208, y: 75 }, { x: 275, y: 65 },
-              { x: 80, y: 148 }, { x: 155, y: 158 }, { x: 235, y: 145 },
+              { x: 65, y: 105 }, { x: 175, y: 88 }, { x: 300, y: 110 }, { x: 420, y: 95 },
+              { x: 95, y: 240 }, { x: 210, y: 255 }, { x: 340, y: 238 },
             ]
             const pos = positions[i]
             if (!pos) return null
