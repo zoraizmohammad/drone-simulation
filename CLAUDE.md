@@ -44,9 +44,19 @@ src/
     TelemetryPanel/
       TelemetryPanel.tsx    — Engineering HUD with all sensor/mission values
     ZoomPanel/
-      ZoomPanel.tsx         — Camera/analysis view: bounding boxes, reticle, sparkles
+      ZoomPanel.tsx         — Thin wrapper that delegates to CameraAnalysisPanel
     ReplayControls/
       ReplayControls.tsx    — Play/pause/reset/speed/scrubber bar
+    camera-analysis/
+      types.ts              — Local types: AnalysisFrame, FlowerRenderState, FrustumState
+      CameraAnalysisPanel.tsx — Computes AnalysisFrame from ReplayFrame, owns layout div
+      CameraAnalysisScene.tsx — SVG scene compositor (800x500 viewBox), assembles sub-components
+      FlowerClusterRenderer.tsx — Seeded-RNG organic SVG flowers (petals, stem, leaves, state rings)
+      DetectionReticle.tsx  — Frustum/targeting overlay: corner brackets, crosshair, center dot
+      DetectionHeatmap.tsx  — Per-flower radial-gradient confidence heat blobs
+      PollinationEffect.tsx — Orbiting sparkle particles + pulse rings during pollinating phase
+      MissionPhaseOverlay.tsx — Phase-specific SVG banners for all 13 mission phases
+      AnalysisHud.tsx       — Bottom HUD strip: phase chip, confidence bar, sparkline, indicators
   simulation/
     replayEngine.ts         — useReplayEngine hook: RAF loop, frame index, history
   data/
@@ -93,10 +103,38 @@ src/
 - 9 waypoints visiting 8 target clusters
 - Each cluster: 4-7 individual flowers with organic SVG rendering
 
+## Camera Analysis Panel Architecture
+
+The Camera / Flower Analysis panel (bottom-right, flex 35) uses a layered SVG architecture:
+
+### Layout Fix (root cause of black panel)
+The panel rendered as a black square because the inner container lacked `position: relative`. The absolutely-positioned SVG (`position: absolute; inset: 0`) had no positioned ancestor to anchor to, so it collapsed to zero size. Fixed by adding `position: relative` and explicit `minHeight: 320px` to the container div in App.tsx.
+
+### AnalysisFrame Pipeline
+```
+ReplayFrame  →  computeAnalysisFrame()  →  AnalysisFrame  →  CameraAnalysisScene
+```
+- `computeAnalysisFrame` maps `frame.flowers` to `FlowerRenderState` with fixed camera-space positions
+- Target flower zooms to scene center (400, 230) at scale 2.0 during target_lock / descent / hover_align / pollinating / ascent
+- `FrustumState.tightness` drives reticle tightness: 0 (transit) → 1.0 (pollinating)
+
+### Fixed Flower Positions (800x500 camera space)
+Two rows of up to 5 flowers each, with center area reserved for target zoom. IDs f1-f10 map to deterministic `CAMERA_POSITIONS` entries so the scene looks like a real garden view.
+
+### SVG Gradient ID Namespacing
+All gradient/filter IDs are prefixed with `ca-` to avoid collisions with the other three panels' `zpVig`, `zpGlow`, etc.
+
+### Phase Coverage
+All 13 `MissionPhase` values are handled in `MissionPhaseOverlay`:
+`idle`, `arming`, `takeoff`, `transit`, `resume_transit`, `scanning`, `candidate_detected`, `target_lock`, `descent`, `hover_align`, `pollinating`, `ascent`, `mission_complete`
+
 ## Git Milestone Log
 1. `Initialize Preact TypeScript simulation scaffold` — all phases scaffolded in first commit
 2. `Add .gitignore to exclude node_modules and dist`
 3. Phase commits: models, engine, all 5 components, polish, validation
+4. `Fix camera analysis panel rendering and layout stability` — container layout fix + debug ZoomPanel
+5. `Rebuild camera analysis panel — modular architecture, full phase coverage` — full production system
+6. `Document upgraded camera analysis system in CLAUDE.md` — architecture notes
 
 ## Stack
 - Preact 10 + TypeScript 5
