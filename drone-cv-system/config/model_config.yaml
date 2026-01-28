@@ -1,0 +1,47 @@
+# ML Model Configuration
+model:
+  architecture: "yolov8n"       # yolov8n (nano) — best RPi4 speed/accuracy tradeoff
+  # Options: yolov8n, yolov8s, yolov8m (larger = more accurate, slower)
+  weights_path: "ml/weights/flower_model.pt"
+  onnx_path: "ml/weights/flower_model.onnx"   # Use ONNX for faster RPi inference
+  use_onnx: true                # Prefer ONNX runtime on RPi
+
+  # Classes this model detects
+  classes:
+    0: "flower_open"            # Open, pollination-ready flower
+    1: "flower_closed"          # Closed/budding flower (skip)
+    2: "flower_cluster"         # Multiple flowers grouped
+
+  # Target priority: prefer open flowers, then clusters
+  target_priority: ["flower_open", "flower_cluster", "flower_closed"]
+
+# Training Configuration
+training:
+  dataset_path: "ml/data/flowers"
+  epochs: 100
+  batch_size: 16
+  image_size: 640
+  learning_rate: 0.01
+  momentum: 0.937
+  weight_decay: 0.0005
+  patience: 20                  # Early stopping patience
+
+  # Data augmentation
+  augmentation:
+    hsv_h: 0.015                # Hue shift
+    hsv_s: 0.7                  # Saturation
+    hsv_v: 0.4                  # Value (brightness)
+    degrees: 45.0               # Rotation (flowers look same from any angle)
+    translate: 0.1
+    scale: 0.5
+    flipud: 0.5                 # Vertical flip (drone view changes orientation)
+    fliplr: 0.5
+    mosaic: 1.0                 # Mosaic augmentation
+
+  # Recommended dataset: Oxford Flowers 102, iNaturalist flowers,
+  # or custom labeled images from Roboflow
+  roboflow:
+    workspace: "your-workspace"
+    project: "flower-detection"
+    version: 1
+    api_key: ""                 # Set via environment variable ROBOFLOW_API_KEY
