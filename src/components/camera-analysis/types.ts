@@ -32,4 +32,14 @@ export interface AnalysisFrame {
   confidenceHistory: number[]
   flowers: FlowerRenderState[]
   frustum: FrustumState
+  // Optical flow sensor data for visualization
+  ofVx: number
+  ofVy: number
+  ofQuality: number
+  ofStrength: number
+  ofPrecision: number
+  ofStability: number
+  ofNoise: number
+  sensorDistanceMm: number
+  distanceInches: number
 }
