@@ -2,6 +2,8 @@ import type {
   ReplayFrame, FlowerCluster, DroneState, SensorState,
   MissionState, CameraAnalysisState, EventLogEntry, MissionPhase, Waypoint
 } from '../models/types'
+import { getSensorAtDistance } from '../simulation/sensorInterpolation'
+import { computeOpticalFlowState } from '../simulation/opticalFlowModel'
 
 // Deterministic pseudo-random
 function seededRandom(seed: number): () => number {
@@ -310,15 +312,23 @@ export function generateMission(): ReplayFrame[] {
       yaw = angleTowards(seg.fromX, seg.fromY, seg.toX, seg.toY)
     }
 
-    // Velocity
-    const dt = 1 / FPS
-    const prevFrame = frames[frameIdx - 1]
-    const vx = prevFrame ? (droneX - prevFrame.drone.x) / dt : 0
-    const vy = prevFrame ? (droneY - prevFrame.drone.y) / dt : 0
-    const vz = prevFrame ? (droneZ - prevFrame.drone.z) / dt : 0
-    const yawRate = prevFrame ? (yaw - prevFrame.drone.yaw) / dt : 0
+    // Distance-driven sensor model
+    const distanceInches = droneZ * 39.37
+    const ofSample = getSensorAtDistance(distanceInches)
+    const ofState = computeOpticalFlowState(ofSample)
 
-    const drone: DroneState = { x: droneX, y: droneY, z: droneZ, vx, vy, vz, yaw, yawRate }
+    // Velocity from optical flow sensor (replaces time-based derivative)
+    const vz = frames[frameIdx - 1] ? (droneZ - frames[frameIdx - 1].drone.z) * FPS : 0
+    const yawRate = frames[frameIdx - 1] ? (yaw - frames[frameIdx - 1].drone.yaw) * FPS : 0
+
+    const drone: DroneState = {
+      x: droneX, y: droneY, z: droneZ,
+      vx: ofState.vx,
+      vy: ofState.vy,
+      vz,
+      yaw,
+      yawRate,
+    }
 
     // Battery: 100% -> 72% over 90s
     const batteryPercent = 100 - (28 * (time / TOTAL_SECONDS))
@@ -327,12 +337,8 @@ export function generateMission(): ReplayFrame[] {
     const distFromHome = distance(droneX, droneY, 2, 2)
     const signalStrength = Math.max(60, 100 - distFromHome * 1.5)
 
-    // Optical flow quality: higher when moving fast at patrol altitude
-    const speed = Math.sqrt(vx * vx + vy * vy)
-    let opticalFlowQuality = 0
-    if (droneZ > 1) {
-      opticalFlowQuality = Math.min(255, 180 + speed * 20 + Math.sin(time * 4) * 15)
-    }
+    // Optical flow quality from sensor model
+    const opticalFlowQuality = ofSample.flow_quality
 
     // Rangefinder
     const rangefinderDistance = droneZ + Math.sin(time * 12) * 0.02
@@ -464,8 +470,8 @@ export function generateMission(): ReplayFrame[] {
 
     const sensor: SensorState = {
       opticalFlowQuality,
-      flowVelocityX: vx * 0.1,
-      flowVelocityY: vy * 0.1,
+      flowVelocityX: ofState.vx,
+      flowVelocityY: ofState.vy,
       rangefinderDistance,
       sonarEstimate: rangefinderDistance + Math.sin(time * 8) * 0.03,
       ekfConfidence,
@@ -475,6 +481,13 @@ export function generateMission(): ReplayFrame[] {
       pollinationTriggered,
       batteryPercent,
       signalStrength,
+      ofStrength:          ofSample.strength,
+      ofPrecision:         ofSample.precision,
+      ofStability:         ofState.stability,
+      ofNoise:             ofState.noise,
+      ofEffectiveQuality:  ofState.effectiveQuality,
+      sensorDistanceMm:    ofSample.sensor_distance,
+      distanceInches,
     }
 
     const mission: MissionState = {

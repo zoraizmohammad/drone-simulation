@@ -47,6 +47,14 @@ export interface SensorState {
   pollinationTriggered: boolean;
   batteryPercent: number;
   signalStrength: number;        // 0-100
+  // Extended optical flow fields (populated from distance-driven physics model)
+  ofStrength: number;        // 0-255 raw signal strength from ToF sensor
+  ofPrecision: number;       // 1-12 measurement precision (lower = better)
+  ofStability: number;       // 0-1 derived stability index
+  ofNoise: number;           // 0-1 noise level
+  ofEffectiveQuality: number; // 0-255 quality weighted by strength and precision
+  sensorDistanceMm: number;  // raw ToF sensor distance in mm
+  distanceInches: number;    // altitude expressed in inches
 }
 
 export interface MissionState {
