@@ -385,6 +385,31 @@ export function generateMission(): ReplayFrame[] {
           targetLocked = true
           pollinationTriggered = true
         }
+
+        // ── Optical flow coupling ───────────────────────────────────────────
+        // Apply sensor quality to detection confidence as a soft modulation.
+        // Range is bounded [0.6, 1.0] so phase transitions are never blocked.
+        const stabilityFactor  = 0.6 + 0.4 * ofState.stability
+        const strengthFactor   = 0.6 + 0.4 * (ofSample.strength / 255)
+        flowerDetectionConf   *= stabilityFactor * strengthFactor
+
+        // Blur penalty: fast optical flow implies camera motion blur
+        const velMag = Math.sqrt(ofState.vx ** 2 + ofState.vy ** 2)
+        if (velMag > 1.5) {
+          flowerDetectionConf *= Math.max(0.75, 1 - (velMag - 1.5) * 0.1)
+        }
+
+        // Heavy degradation when quality is below reliable threshold
+        if (ofSample.flow_quality < 50) {
+          flowerDetectionConf *= 0.6
+        }
+
+        // Boost confidence during stable low-altitude hover
+        if (ofState.stability > 0.7 && droneZ < 3) {
+          flowerDetectionConf = Math.min(1.0, flowerDetectionConf * 1.15)
+        }
+
+        flowerDetectionConf = Math.max(0, Math.min(1, flowerDetectionConf))
       }
     }
 
