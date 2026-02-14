@@ -50,6 +50,13 @@ export function CameraAnalysisScene({ af }: { af: AnalysisFrame }) {
           <feGaussianBlur stdDeviation="4" result="b" />
           <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
         </filter>
+        {/* Motion blur filter — stdDeviation driven by velocity magnitude */}
+        <filter id="ca-motion-blur" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur
+            stdDeviation={`${Math.min(6, Math.sqrt(ofVx ** 2 + ofVy ** 2) * 1.8)} 0`}
+            result="blur" />
+          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
       </defs>
 
       {/* Background */}
@@ -67,12 +74,41 @@ export function CameraAnalysisScene({ af }: { af: AnalysisFrame }) {
           stroke="#0f172a" strokeWidth={0.5} />
       ))}
 
-      {/* Flowers (jitter applied when sensor quality is low) */}
-      <g transform={`translate(${jx}, ${jy})`}>
+      {/* Flowers — jitter when low quality, motion blur when high velocity */}
+      <g
+        transform={`translate(${jx}, ${jy})`}
+        filter={Math.sqrt(ofVx ** 2 + ofVy ** 2) > 1.0 ? 'url(#ca-motion-blur)' : undefined}
+        className={ofStability < 0.35 ? 'of-flicker' : undefined}
+      >
         {flowers.map(f => (
           <FlowerClusterRenderer key={f.id} flower={f} />
         ))}
       </g>
+
+      {/* Stable hover glow — cyan ring when well-stabilised at low altitude */}
+      {ofStability > 0.7 && distanceInches < 120 && (
+        <circle
+          cx={VW / 2} cy={VH / 2} r={28}
+          fill="none" stroke="#22d3ee" strokeWidth={1.5}
+          opacity={ofStability * 0.5}
+          className="of-vector-stable"
+          filter="url(#ca-glow)"
+        />
+      )}
+
+      {/* Unstable / degraded scene tint — red-orange vignette flash */}
+      {ofStability < 0.4 && (
+        <radialGradient id="ca-unstable-vig" cx="50%" cy="50%" r="50%">
+          <stop offset="50%" stopColor="transparent" />
+          <stop offset="100%" stopColor="#ef4444" stopOpacity={0.12 * (1 - ofStability / 0.4)} />
+        </radialGradient>
+      )}
+      {ofStability < 0.4 && (
+        <rect x={0} y={0} width={VW} height={VH}
+          fill="url(#ca-unstable-vig)"
+          className="of-vector-unstable"
+          pointerEvents="none" />
+      )}
 
       {/* Heatmap */}
       <DetectionHeatmap flowers={flowers} phase={phase} qualityIntensity={ofQuality / 255} />

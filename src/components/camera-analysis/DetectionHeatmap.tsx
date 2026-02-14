@@ -29,7 +29,8 @@ export function DetectionHeatmap({ flowers, phase, qualityIntensity = 1 }: Props
         const r = 60 + f.confidence * 40
         return (
           <ellipse key={f.id} cx={f.cx} cy={f.cy} rx={r} ry={r * 0.75}
-            fill={`url(#ca-hg-${f.id})`} />
+            fill={`url(#ca-hg-${f.id})`}
+            className="of-heatmap-pulse" />
         )
       })}
     </g>
