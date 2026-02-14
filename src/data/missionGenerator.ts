@@ -315,7 +315,7 @@ export function generateMission(): ReplayFrame[] {
     // Distance-driven sensor model
     const distanceInches = droneZ * 39.37
     const ofSample = getSensorAtDistance(distanceInches)
-    const ofState = computeOpticalFlowState(ofSample)
+    const ofState = computeOpticalFlowState(ofSample, frameIdx)
 
     // Velocity from optical flow sensor (replaces time-based derivative)
     const vz = frames[frameIdx - 1] ? (droneZ - frames[frameIdx - 1].drone.z) * FPS : 0
