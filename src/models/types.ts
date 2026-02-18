@@ -78,6 +78,62 @@ export interface CameraAnalysisState {
   }>;
 }
 
+export type SimMode = 'replay' | 'live'
+
+export type LivePhase =
+  | 'idle' | 'arming' | 'takeoff'
+  | 'scanning' | 'planning'
+  | 'approach' | 'descent' | 'hover_align'
+  | 'pollinating' | 'ascent' | 'resume'
+  | 'mission_complete' | 'landing'
+
+export interface LiveFlower {
+  id: string
+  x: number
+  y: number
+  radius: number
+  flowerCount: number
+  color: string
+  accentColor: string
+  state: 'undiscovered' | 'discovered' | 'scanned' | 'candidate' | 'locked' | 'pollinated'
+  confidence: number
+}
+
+export interface InferenceDetection {
+  id: string
+  confidence: number
+  cls: 'flower_open' | 'flower_closed' | 'flower_cluster'
+  bbox: [number, number, number, number]
+}
+
+export interface InferenceResult {
+  detections: InferenceDetection[]
+  phaseSuggestion: LivePhase
+  targetId: string | null
+  inferenceMs: number
+  inferenceMode: 'onnx' | 'mock'
+  framePng: string | null
+}
+
+export interface LiveFrame {
+  drone: DroneState
+  sensor: SensorState
+  flowers: LiveFlower[]
+  phase: LivePhase
+  inference: InferenceResult | null
+  discoveredIds: string[]
+  pollinatedIds: string[]
+  tspRoute: string[]
+  currentTargetId: string | null
+  scanPassIndex: number
+  scanComplete: boolean
+  planningComplete: boolean
+  positionHistory: Array<{ x: number; y: number }>
+  altitudeHistory: Array<{ time: number; z: number }>
+  events: EventLogEntry[]
+  time: number
+}
+
 export interface EventLogEntry {
   timestamp: number; // seconds
   message: string;
