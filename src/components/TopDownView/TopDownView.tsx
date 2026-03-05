@@ -1,10 +1,11 @@
-import type { ReplayFrame, FlowerCluster } from '../../models/types'
-import { GARDEN_SIZE, WAYPOINTS, FLOWER_CLUSTERS } from '../../data/missionGenerator'
+import type { ReplayFrame, FlowerCluster, LiveFrame } from '../../models/types'
+import { GARDEN_SIZE, WAYPOINTS } from '../../data/missionGenerator'
 import { getPhaseColor } from '../../app/App'
 
 interface Props {
   frame: ReplayFrame
   positionHistory: Array<{ x: number; y: number }>
+  liveFrame?: LiveFrame | null
 }
 
 // Map garden coords to SVG coords
@@ -212,10 +213,23 @@ function DroneTopDown({ x, y, yaw, phase, frameTime }: {
   )
 }
 
-export function TopDownView({ frame, positionHistory }: Props) {
+// ── Mode 2 ghost flower (undiscovered) ────────────────────────────────────
+function GhostFlower({ x, y }: { x: number; y: number }) {
+  const p = gardenToSvg(x, y)
+  return (
+    <g>
+      <circle cx={p.x} cy={p.y} r={10} fill="none"
+        stroke="#334155" strokeWidth={1} strokeDasharray="3,3" opacity={0.4} />
+      <circle cx={p.x} cy={p.y} r={3} fill="#1e293b" opacity={0.5} />
+    </g>
+  )
+}
+
+export function TopDownView({ frame, positionHistory, liveFrame }: Props) {
   const drone = frame.drone
   const mission = frame.mission
   const droneSvg = gardenToSvg(drone.x, drone.y)
+  const isLiveMode = liveFrame !== null && liveFrame !== undefined
 
   return (
     <svg
@@ -291,8 +305,8 @@ export function TopDownView({ frame, positionHistory }: Props) {
         )
       })}
 
-      {/* Waypoint route */}
-      {WAYPOINTS.length > 1 && (
+      {/* Mode 1: Waypoint route */}
+      {!isLiveMode && WAYPOINTS.length > 1 && (
         <polyline
           points={WAYPOINTS.map(wp => {
             const p = gardenToSvg(wp.x, wp.y)
@@ -306,8 +320,8 @@ export function TopDownView({ frame, positionHistory }: Props) {
         />
       )}
 
-      {/* Waypoints */}
-      {WAYPOINTS.map((wp, i) => {
+      {/* Mode 1: Waypoints */}
+      {!isLiveMode && WAYPOINTS.map((wp, i) => {
         const p = gardenToSvg(wp.x, wp.y)
         const isActive = i === mission.currentWaypointIndex
         const isCompleted = i < mission.currentWaypointIndex
@@ -333,6 +347,71 @@ export function TopDownView({ frame, positionHistory }: Props) {
           </g>
         )
       })}
+
+      {/* Mode 2: Ghost outlines for undiscovered flowers */}
+      {isLiveMode && liveFrame!.flowers
+        .filter(f => f.state === 'undiscovered')
+        .map(f => <GhostFlower key={f.id} x={f.x} y={f.y} />)
+      }
+
+      {/* Mode 2: Lawnmower scan sweep line */}
+      {isLiveMode && (liveFrame!.phase === 'scanning') && (() => {
+        const sweepSvg = gardenToSvg(liveFrame!.drone.x, 0)
+        const sweepTop = gardenToSvg(liveFrame!.drone.x, 0)
+        const sweepBot = gardenToSvg(liveFrame!.drone.x, GARDEN_SIZE)
+        return (
+          <g>
+            <line
+              x1={sweepSvg.x} y1={sweepTop.y}
+              x2={sweepSvg.x} y2={sweepBot.y}
+              stroke="#06b6d4" strokeWidth={1}
+              strokeDasharray="3,4" opacity={0.5}
+            />
+            {/* Scan pass label */}
+            <rect x={sweepSvg.x + 3} y={MARGIN + 4} width={52} height={13} rx={2}
+              fill="#030712" opacity={0.75} />
+            <text x={sweepSvg.x + 7} y={MARGIN + 13} fontSize={8}
+              fill="#06b6d4" fontWeight="bold" letterSpacing="0.06em">
+              PASS {liveFrame!.scanPassIndex + 1}/4
+            </text>
+          </g>
+        )
+      })()}
+
+      {/* Mode 2: TSP route overlay (after planning) */}
+      {isLiveMode && liveFrame!.planningComplete && liveFrame!.tspRoute.length > 1 && (() => {
+        const routeFlowers = liveFrame!.tspRoute
+          .map(id => liveFrame!.flowers.find(f => f.id === id))
+          .filter(Boolean) as typeof liveFrame.flowers
+        if (routeFlowers.length < 2) return null
+        const pts = routeFlowers.map(f => {
+          const p = gardenToSvg(f.x, f.y)
+          return `${p.x},${p.y}`
+        }).join(' ')
+        return (
+          <g>
+            <polyline
+              points={pts}
+              fill="none"
+              stroke="#818cf8"
+              strokeWidth={1.5}
+              strokeDasharray="5,4"
+              opacity={0.6}
+            />
+            {/* Route order numbers */}
+            {routeFlowers.map((f, idx) => {
+              const p = gardenToSvg(f.x, f.y)
+              return (
+                <g key={f.id}>
+                  <circle cx={p.x} cy={p.y - 16} r={6} fill="#1e1b4b" stroke="#818cf8" strokeWidth={1} opacity={0.85} />
+                  <text x={p.x} y={p.y - 13} fontSize={7} fill="#a5b4fc"
+                    textAnchor="middle" fontWeight="bold">{idx + 1}</text>
+                </g>
+              )
+            })}
+          </g>
+        )
+      })()}
 
       {/* Flower clusters */}
       {frame.flowers.map(cluster => (
@@ -380,12 +459,16 @@ export function TopDownView({ frame, positionHistory }: Props) {
       })()}
 
       {/* Phase label overlay */}
-      <rect x={MARGIN + 2} y={MARGIN + 2} width={160} height={18} rx={3}
-        fill="#030712" opacity={0.7} />
-      <text x={MARGIN + 8} y={MARGIN + 14} fontSize={9}
-        fill={getPhaseColor(mission.phase)} fontWeight="bold" letterSpacing="0.08em">
-        {mission.phase.replace(/_/g, ' ').toUpperCase()}
-      </text>
+      {!isLiveMode && (
+        <>
+          <rect x={MARGIN + 2} y={MARGIN + 2} width={160} height={18} rx={3}
+            fill="#030712" opacity={0.7} />
+          <text x={MARGIN + 8} y={MARGIN + 14} fontSize={9}
+            fill={getPhaseColor(mission.phase)} fontWeight="bold" letterSpacing="0.08em">
+            {mission.phase.replace(/_/g, ' ').toUpperCase()}
+          </text>
+        </>
+      )}
 
       {/* Scale indicator */}
       <line x1={SVG_SIZE - MARGIN - 48} y1={SVG_SIZE - 10} x2={SVG_SIZE - MARGIN} y2={SVG_SIZE - 10}
