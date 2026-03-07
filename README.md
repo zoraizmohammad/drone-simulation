@@ -13,7 +13,14 @@ A full-stack autonomous pollinator drone platform combining an interactive missi
    - [Frame Generation](#frame-generation-missiongeneratorts)
    - [Replay Engine](#replay-engine-replayenginets)
    - [UI Panels](#ui-panels)
-5. [ML Model — YOLOv8 Flower Detection](#ml-model--yolov8-flower-detection)
+5. [Mode 2 — Live Inference with Python Server](#mode-2--live-inference-with-python-server)
+   - [Setup](#setup)
+   - [Mission Flow](#mode-2-mission-flow)
+   - [WebSocket Protocol](#websocket-protocol)
+   - [Detection Bridge](#detection-bridge)
+   - [Photorealistic Frame Rendering](#photorealistic-frame-rendering)
+   - [Top-Down Map Overlays](#top-down-map--mode-2-overlays)
+6. [ML Model — YOLOv8 Flower Detection](#ml-model--yolov8-flower-detection)
    - [Model Architecture](#model-architecture)
    - [Training Pipeline](#training-pipeline)
    - [Inference & ONNX Export](#inference--onnx-export)
@@ -54,7 +61,10 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173). The simulation starts immediately and plays a 90-second autonomous pollination mission. Use the replay controls at the bottom to play/pause, scrub to any point, or increase playback speed.
+Open [http://localhost:5173](http://localhost:5173). A mode selector appears on launch:
+
+- **Mode 1 — Replay**: Plays the pre-generated 90-second deterministic mission replay. Use the timeline controls at the bottom to play/pause, scrub, or change speed.
+- **Mode 2 — Live Inference**: Randomly places flowers, spins up the Python inference server automatically, scans the garden in 4 lawnmower passes, plans a TSP route, then pollinates every discovered flower. The camera panel shows the actual photorealistic PIL-rendered frames from the server.
 
 **Build for production:**
 ```bash
@@ -66,31 +76,49 @@ npm run build
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Web Simulation (Browser)                      │
-│                                                                       │
-│  missionGenerator.ts  →  useReplayEngine  →  4 SVG Panels           │
-│  (2700 ReplayFrames)      (RAF loop)          Top-Down / Side /      │
-│                                               Telemetry / Camera     │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                         Web Simulation (Browser)                          │
+│                                                                            │
+│  MODE 1 — Replay                    MODE 2 — Live Inference               │
+│  ─────────────────                  ────────────────────────              │
+│  missionGenerator.ts                randomMissionGenerator.ts             │
+│  (2700 ReplayFrames)                (random garden, lawnmower scan)       │
+│       ↓                                      ↓                            │
+│  useReplayEngine                    useLiveInferenceEngine                │
+│  (RAF loop, seek)                   (RAF loop, WsClient)                  │
+│       ↓                                      ↓                            │
+│  4 SVG Panels ←───────── liveToReplay() adapter ──────────               │
+│  Top-Down / Side / Telemetry / Camera                                     │
+└──────────────────────────────────────────────────────────────────────────┘
+              ↕ WebSocket ws://localhost:8765/inference
+┌──────────────────────────────────────────────────────────────────────────┐
+│                    Python Inference Server (localhost)                     │
+│                                                                            │
+│  FastAPI + uvicorn                                                         │
+│       ↓                                                                    │
+│  scene_renderer.py (PIL photorealistic frames, 640×640)                   │
+│       ↓                                                                    │
+│  DetectionBridge → OnnxDetector (YOLOv8n ONNX) or MockDetector           │
+│                      (physics-based projection model)                     │
+└──────────────────────────────────────────────────────────────────────────┘
 
-┌─────────────────────────────────────────────────────────────────────┐
-│                  Real Drone CV System (Raspberry Pi 4)               │
-│                                                                       │
-│  RPi Camera v2                                                        │
-│      ↓                                                                │
-│  FramePreprocessor  →  FlowerDetector (YOLOv8n ONNX)                │
-│                               ↓                                       │
-│                      OpticalFlowTracker  →  DepthEstimator           │
-│                               ↓                                       │
-│                        StateMachine (13 phases, 20 Hz)               │
-│                               ↓                                       │
-│                       FlightController  →  MAVLinkInterface          │
-│                               ↓                                       │
-│                           Pixhawk 4/6                                │
-│                               ↓                                       │
-│                    PollinationManager (GPIO servo)                    │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                   Real Drone CV System (Raspberry Pi 4)                   │
+│                                                                            │
+│  RPi Camera v2                                                             │
+│      ↓                                                                     │
+│  FramePreprocessor  →  FlowerDetector (YOLOv8n ONNX)                     │
+│                               ↓                                            │
+│                      OpticalFlowTracker  →  DepthEstimator                │
+│                               ↓                                            │
+│                        StateMachine (13 phases, 20 Hz)                    │
+│                               ↓                                            │
+│                       FlightController  →  MAVLinkInterface               │
+│                               ↓                                            │
+│                           Pixhawk 4/6                                     │
+│                               ↓                                            │
+│                    PollinationManager (GPIO servo)                         │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -234,6 +262,102 @@ ReplayFrame → computeAnalysisFrame() → AnalysisFrame → CameraAnalysisScene
 **Target zoom behavior:** When phase is `target_lock`, `descent`, `hover_align`, `pollinating`, or `ascent`, the target flower translates to scene center (400, 230) at 2× scale, mimicking camera zoom.
 
 **Confidence visualization:** `DetectionHeatmap` renders a warm-color radial gradient centered on each flower. The opacity and spread scale with the flower's current confidence value from the `ReplayFrame`.
+
+---
+
+## Mode 2 — Live Inference with Python Server
+
+Mode 2 demonstrates the full autonomy loop in real time: garden scan → TSP planning → pollination execution, with a Python inference server providing computer vision.
+
+### Setup
+
+```bash
+# Install server dependencies
+pip install -r drone-cv-system/server/requirements_server.txt
+
+# Optional: generate a real YOLOv8n ONNX model (downloads ~6 MB)
+python3 drone-cv-system/server/generate_model.py
+```
+
+The server starts **automatically** when you select Mode 2 in the browser. Vite's dev server proxies a `POST /api/start-inference-server` request to spawn `inference_server.py` via Node.js `child_process`.
+
+### Mode 2 Mission Flow
+
+```
+1. GARDEN GENERATION
+   randomMissionGenerator.ts places 6–10 flower clusters (min 2.5m spacing)
+
+2. SCAN PHASE — 4 lawnmower passes at x = 4.0, 8.5, 13.0, 17.5 m
+   Drone flies N→S or S→N on each pass at 8m altitude
+   WebSocket sends: { drone, flowers, phase } every 100ms
+   Server returns: { detections, phaseSuggestion, targetId, framePng, inferenceMs }
+   Discovered flowers collected, confidence updated per detection
+
+3. PLANNING PHASE — 2.5s dwell
+   TSP nearest-neighbor on all discovered flowers
+   Route displayed as numbered purple overlay on top-down map
+
+4. EXECUTION — visit each flower in route order
+   approach → descent → hover_align → pollinating (3s) → ascent → resume
+
+5. MISSION COMPLETE — all discovered flowers pollinated
+```
+
+### WebSocket Protocol
+
+**Browser → Server (JSON, every 100ms):**
+```json
+{
+  "drone":   { "x": 8.5, "y": 12.3, "z": 8.0, "yaw": 0 },
+  "flowers": [ { "id": "live_f0", "x": 7.2, "y": 5.1, "radius": 0.4, ... } ],
+  "phase":   "scanning"
+}
+```
+
+**Server → Browser (JSON, per frame):**
+```json
+{
+  "detections":      [ { "id": "live_f0", "confidence": 0.82, "bbox": [210,185,430,405] } ],
+  "phaseSuggestion": "approach",
+  "targetId":        "live_f0",
+  "inferenceMs":     12.4,
+  "inferenceMode":   "mock",
+  "framePng":        "<base64 JPEG string>"
+}
+```
+
+The `framePng` is rendered as the camera panel background — a 640×640 photorealistic PIL image showing the drone's downward view with projected flower clusters, grass texture, depth-of-field blur, and vignette.
+
+### Detection Bridge
+
+The server tries two detection paths in order:
+
+| Path | Condition | Description |
+|------|-----------|-------------|
+| **ONNX** | `flower_detector.onnx` present & onnxruntime installed | YOLOv8n inference on rendered PIL frame |
+| **Mock** | Fallback on any error | Physics projection: each flower's camera-space position and horizontal proximity → confidence |
+
+The mock detector mirrors the sensor table in `detection_bridge.py` (`_SENSOR_TABLE`), which reproduces the `raw_opticalflow_data.csv` strength/quality lookup. This means mock detections are physically plausible — confidence falls off with altitude and horizontal distance exactly as the real sensor model predicts.
+
+### Photorealistic Frame Rendering
+
+`scene_renderer.py` renders 640×640 frames using PIL:
+
+- **Background**: Green grass base (72, 108, 52) with per-pixel Gaussian noise and 12 random soil patches for texture variation
+- **Perspective projection**: `u = FX * (rel_x * cos(yaw) + rel_y * sin(yaw)) / alt + 320` — correct perspective with drone yaw rotation
+- **Flowers**: 6-petal ellipse layout, grass patch, ground shadow, stem, leaves, pistil center and dot. Seeded per `hash(flower_id)` for determinism
+- **Post-processing**: GaussianBlur DoF when altitude > 2m (up to radius 3.0), radial vignette via distance-from-center multiply factor
+
+### Top-Down Map — Mode 2 Overlays
+
+During Mode 2, the top-down garden view shows additional information:
+
+| Overlay | Appearance | Shown when |
+|---------|-----------|-----------|
+| Ghost outlines | Gray dashed circles | Undiscovered flowers |
+| Scan sweep line | Cyan dashed vertical | `scanning` phase |
+| TSP route | Purple numbered polyline | After planning complete |
+| Route numbers | Purple numbered badges | Route order per flower |
 
 ---
 
