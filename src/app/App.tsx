@@ -1,115 +1,87 @@
+import { useState } from 'preact/hooks'
+import type { SimMode, LiveFrame, ReplayFrame, FlowerCluster, MissionPhase } from '../models/types'
 import { TopDownView } from '../components/TopDownView/TopDownView'
 import { SideView } from '../components/SideView/SideView'
 import { TelemetryPanel } from '../components/TelemetryPanel/TelemetryPanel'
 import { ZoomPanel } from '../components/ZoomPanel/ZoomPanel'
 import { ReplayControls } from '../components/ReplayControls/ReplayControls'
+import { LiveStatus } from '../components/LiveStatus/LiveStatus'
+import { ModeSelector } from './ModeSelector'
 import { useReplayEngine } from '../simulation/replayEngine'
+import { useLiveInferenceEngine } from '../simulation/liveInferenceEngine'
 
-export function App() {
+// ── Live frame adapter ────────────────────────────────────────────────────
+// Converts a LiveFrame into a ReplayFrame so existing panels work unmodified.
+function liveToReplay(lf: LiveFrame): ReplayFrame {
+  const phaseMap: Record<string, MissionPhase> = {
+    idle: 'idle', arming: 'arming', takeoff: 'takeoff',
+    scanning: 'scanning', planning: 'scanning',
+    approach: 'transit', descent: 'descent',
+    hover_align: 'hover_align', pollinating: 'pollinating',
+    ascent: 'ascent', resume: 'resume_transit',
+    mission_complete: 'mission_complete', landing: 'idle',
+  }
+  return {
+    time: lf.time,
+    drone: lf.drone,
+    sensor: lf.sensor,
+    mission: {
+      phase: (phaseMap[lf.phase] as MissionPhase) ?? 'idle',
+      currentWaypointIndex: 0,
+      currentTargetFlowerId: lf.currentTargetId,
+      pollinatedFlowerIds: lf.pollinatedIds,
+      totalFlowers: lf.flowers.length,
+      elapsedSeconds: lf.time,
+    },
+    camera: {
+      visibleFlowerIds: lf.discoveredIds,
+      candidateFlowerId: null,
+      lockedFlowerId: lf.currentTargetId,
+      confidenceHistory: lf.inference?.detections.map(d => d.confidence) ?? [],
+      boundingBoxes: (lf.inference?.detections ?? []).map(d => ({
+        flowerId: d.id,
+        x: d.bbox[0] / 640, y: d.bbox[1] / 640,
+        w: (d.bbox[2] - d.bbox[0]) / 640,
+        h: (d.bbox[3] - d.bbox[1]) / 640,
+        confidence: d.confidence,
+      })),
+    },
+    flowers: lf.flowers.map(f => ({
+      ...f,
+      state: (
+        f.state === 'undiscovered' ? 'unscanned' :
+        f.state === 'discovered'   ? 'scanned'   :
+        f.state
+      ) as FlowerCluster['state'],
+    })),
+    events: lf.events,
+  }
+}
+
+// ── Sub-apps ──────────────────────────────────────────────────────────────
+
+function ReplayApp({ onExit }: { onExit: () => void }) {
   const replay = useReplayEngine()
+  const phase  = replay.currentFrame?.mission.phase ?? 'idle'
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh', background: '#030712', overflow: 'hidden' }}>
-      {/* Header */}
-      <header style={{
-        padding: '8px 16px',
-        borderBottom: '1px solid #1e3a5f',
-        background: 'linear-gradient(180deg, #0a1628 0%, #030712 100%)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexShrink: 0,
-      }}>
-        <div>
-          <div style={{ fontSize: '14px', fontWeight: 700, color: '#38bdf8', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-            Smart Pollinator Mission Replay
-          </div>
-          <div style={{ fontSize: '10px', color: '#64748b', letterSpacing: '0.08em' }}>
-            Autonomous Pollinator Drone — Mission Visualization System
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <div style={{
-            padding: '3px 10px',
-            borderRadius: '4px',
-            fontSize: '10px',
-            fontWeight: 700,
-            letterSpacing: '0.1em',
-            textTransform: 'uppercase',
-            background: getPhaseColor(replay.currentFrame?.mission.phase || 'idle') + '33',
-            color: getPhaseColor(replay.currentFrame?.mission.phase || 'idle'),
-            border: `1px solid ${getPhaseColor(replay.currentFrame?.mission.phase || 'idle')}66`,
-          }}>
-            {replay.currentFrame?.mission.phase.replace(/_/g, ' ') || 'IDLE'}
-          </div>
-          <div style={{ fontSize: '11px', color: '#94a3b8' }}>
-            T+{Math.floor(replay.currentTime)}s
-          </div>
-        </div>
-      </header>
-
-      {/* Main content */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
-        {/* Left column - 60% */}
-        <div style={{ width: '60%', display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid #1e3a5f' }}>
-          {/* Top-Down View - flex 62 */}
-          <div style={{ flex: 62, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderBottom: '1px solid #1e3a5f' }}>
-            <div style={{ flexShrink: 0, padding: '4px 10px', fontSize: '10px', color: '#64748b', letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid #0f2744' }}>
-              Top-Down Mission View
-            </div>
-            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-              {replay.currentFrame ? <TopDownView frame={replay.currentFrame} positionHistory={replay.positionHistory} /> : <Placeholder label="Top-Down View" />}
-            </div>
-          </div>
-          {/* Side View - flex 38 */}
-          <div style={{ flex: 38, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ flexShrink: 0, padding: '4px 10px', fontSize: '10px', color: '#64748b', letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid #0f2744' }}>
-              Altitude / Side View
-            </div>
-            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-              {replay.currentFrame ? <SideView frame={replay.currentFrame} altitudeHistory={replay.altitudeHistory} /> : <Placeholder label="Side View" />}
-            </div>
-          </div>
-        </div>
-
-        {/* Right column - 40% */}
-        <div style={{ width: '40%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {/* Telemetry Panel - flex 65 */}
-          <div style={{ flex: 65, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderBottom: '1px solid #1e3a5f' }}>
-            <div style={{ flexShrink: 0, padding: '4px 10px', fontSize: '10px', color: '#64748b', letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid #0f2744' }}>
-              Telemetry Dashboard
-            </div>
-            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-              {replay.currentFrame ? <TelemetryPanel frame={replay.currentFrame} accumulatedEvents={replay.accumulatedEvents} /> : <Placeholder label="Telemetry" />}
-            </div>
-          </div>
-          {/* Zoom Panel - flex 35 */}
-          <div style={{ flex: 35, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ flexShrink: 0, padding: '4px 10px', fontSize: '10px', color: '#64748b', letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid #0f2744' }}>
-              Camera / Flower Analysis
-            </div>
-            <div style={{
-              width: '100%',
-              height: '100%',
-              minHeight: '320px',
-              position: 'relative',
-              overflow: 'hidden',
-              display: 'block',
-              flex: 1,
-            }}>
-              {replay.currentFrame ? <ZoomPanel frame={replay.currentFrame} /> : <Placeholder label="Zoom Panel" />}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Replay Controls - bottom bar */}
-      <div style={{
-        flexShrink: 0,
-        borderTop: '1px solid #1e3a5f',
-        background: '#0a1628',
-        padding: '6px 16px',
-      }}>
+    <AppShell
+      phaseLabel={phase.replace(/_/g, ' ')}
+      phaseColor={getPhaseColor(phase)}
+      elapsed={Math.floor(replay.currentTime)}
+      modeLabel="REPLAY"
+      headerRight={
+        <button onClick={onExit} style={exitBtnStyle}>✕ EXIT</button>
+      }
+    >
+      <FourPanels
+        frame={replay.currentFrame}
+        positionHistory={replay.positionHistory}
+        altitudeHistory={replay.altitudeHistory}
+        accumulatedEvents={replay.accumulatedEvents}
+        liveFrame={null}
+      />
+      <BottomBar>
         <ReplayControls
           isPlaying={replay.isPlaying}
           speed={replay.speed}
@@ -121,29 +93,197 @@ export function App() {
           onSetSpeed={replay.setSpeed}
           onSeek={replay.seekTo}
         />
+      </BottomBar>
+    </AppShell>
+  )
+}
+
+function LiveApp({ onExit }: { onExit: () => void }) {
+  const live = useLiveInferenceEngine()
+  const lf   = live.currentFrame
+  const adapted = lf ? liveToReplay(lf) : null
+  const phase   = lf?.phase ?? 'idle'
+
+  return (
+    <AppShell
+      phaseLabel={phase.replace(/_/g, ' ')}
+      phaseColor={getLivePhaseColor(phase)}
+      elapsed={Math.floor(lf?.time ?? 0)}
+      modeLabel="LIVE"
+      headerRight={
+        <LiveStatus
+          wsStatus={live.wsStatus}
+          inferenceMode={live.inferenceMode}
+          inferenceMs={live.inferenceMs}
+          onRestart={live.restart}
+          onExit={onExit}
+        />
+      }
+    >
+      <FourPanels
+        frame={adapted}
+        positionHistory={lf?.positionHistory ?? []}
+        altitudeHistory={lf?.altitudeHistory ?? []}
+        accumulatedEvents={lf?.events ?? []}
+        liveFrame={lf}
+      />
+      <BottomBar>
+        <LiveBottomBar lf={lf} />
+      </BottomBar>
+    </AppShell>
+  )
+}
+
+// ── Root App ──────────────────────────────────────────────────────────────
+
+export function App() {
+  const [mode, setMode] = useState<'select' | SimMode>('select')
+
+  if (mode === 'select') return <ModeSelector onSelect={setMode} />
+  if (mode === 'replay') return <ReplayApp onExit={() => setMode('select')} />
+  return <LiveApp onExit={() => setMode('select')} />
+}
+
+// ── Shared layout components ──────────────────────────────────────────────
+
+function AppShell({ phaseLabel, phaseColor, elapsed, modeLabel, headerRight, children }: {
+  phaseLabel: string; phaseColor: string; elapsed: number
+  modeLabel: string; headerRight: preact.ComponentChild; children: preact.ComponentChildren
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh', background: '#030712', overflow: 'hidden' }}>
+      <header style={{
+        padding: '8px 16px', borderBottom: '1px solid #1e3a5f',
+        background: 'linear-gradient(180deg, #0a1628 0%, #030712 100%)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
+      }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#38bdf8', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+            Smart Pollinator — {modeLabel} MODE
+          </div>
+          <div style={{ fontSize: 10, color: '#64748b', letterSpacing: '0.08em' }}>
+            Autonomous Pollinator Drone Platform
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <div style={{
+            padding: '3px 10px', borderRadius: 4, fontSize: 10, fontWeight: 700,
+            letterSpacing: '0.1em', textTransform: 'uppercase',
+            background: phaseColor + '33', color: phaseColor, border: `1px solid ${phaseColor}66`,
+          }}>
+            {phaseLabel.toUpperCase()}
+          </div>
+          <div style={{ fontSize: 11, color: '#94a3b8' }}>T+{elapsed}s</div>
+          {headerRight}
+        </div>
+      </header>
+      {children}
+    </div>
+  )
+}
+
+function FourPanels({ frame, positionHistory, altitudeHistory, accumulatedEvents, liveFrame }: {
+  frame: ReplayFrame | null
+  positionHistory: Array<{ x: number; y: number }>
+  altitudeHistory: Array<{ time: number; z: number }>
+  accumulatedEvents: import('../models/types').EventLogEntry[]
+  liveFrame: LiveFrame | null
+}) {
+  return (
+    <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
+      <div style={{ width: '60%', display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid #1e3a5f' }}>
+        <PanelBox label="Top-Down Mission View" flex={62} borderBottom>
+          {frame
+            ? <TopDownView frame={frame} positionHistory={positionHistory} liveFrame={liveFrame} />
+            : <Placeholder label="Top-Down View" />}
+        </PanelBox>
+        <PanelBox label="Altitude / Side View" flex={38}>
+          {frame
+            ? <SideView frame={frame} altitudeHistory={altitudeHistory} />
+            : <Placeholder label="Side View" />}
+        </PanelBox>
       </div>
+      <div style={{ width: '40%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <PanelBox label="Telemetry Dashboard" flex={65} borderBottom>
+          {frame
+            ? <TelemetryPanel frame={frame} accumulatedEvents={accumulatedEvents} />
+            : <Placeholder label="Telemetry" />}
+        </PanelBox>
+        <PanelBox label="Camera / Flower Analysis" flex={35} relative minHeight={320}>
+          {frame
+            ? <ZoomPanel frame={frame} livePng={liveFrame?.inference?.framePng ?? null} />
+            : <Placeholder label="Camera Analysis" />}
+        </PanelBox>
+      </div>
+    </div>
+  )
+}
+
+function PanelBox({ label, flex, borderBottom, relative, minHeight, children }: {
+  label: string; flex: number; borderBottom?: boolean
+  relative?: boolean; minHeight?: number; children: preact.ComponentChildren
+}) {
+  return (
+    <div style={{ flex, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', ...(borderBottom ? { borderBottom: '1px solid #1e3a5f' } : {}) }}>
+      <div style={{ flexShrink: 0, padding: '4px 10px', fontSize: 10, color: '#64748b', letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid #0f2744' }}>
+        {label}
+      </div>
+      <div style={{ flex: 1, minHeight: minHeight ?? 0, overflow: 'hidden', ...(relative ? { position: 'relative' } : {}) }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function BottomBar({ children }: { children: preact.ComponentChildren }) {
+  return (
+    <div style={{ flexShrink: 0, borderTop: '1px solid #1e3a5f', background: '#0a1628', padding: '6px 16px' }}>
+      {children}
+    </div>
+  )
+}
+
+function LiveBottomBar({ lf }: { lf: LiveFrame | null }) {
+  if (!lf) return null
+  const discovered = lf.discoveredIds.length
+  const pollinated = lf.pollinatedIds.length
+  const total      = lf.flowers.length
+  const passLabel  = lf.scanComplete ? 'SCAN DONE' : `PASS ${lf.scanPassIndex + 1}/4`
+  const routeLabel = lf.planningComplete ? `ROUTE: ${lf.tspRoute.join(' → ')}` : 'ROUTE: PENDING'
+
+  return (
+    <div style={{ display: 'flex', gap: 24, alignItems: 'center', fontSize: 10, fontFamily: 'monospace', color: '#64748b' }}>
+      <span style={{ color: '#22d3ee' }}>{passLabel}</span>
+      <span>DISCOVERED {discovered}/{total}</span>
+      <span style={{ color: '#22c55e' }}>POLLINATED {pollinated}/{discovered}</span>
+      <span style={{ color: '#94a3b8', fontSize: 9 }}>{routeLabel}</span>
     </div>
   )
 }
 
 function Placeholder({ label }: { label: string }) {
   return (
-    <div style={{
-      width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      color: '#1e3a5f', fontSize: '12px', letterSpacing: '0.1em', textTransform: 'uppercase',
-    }}>
+    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#1e3a5f', fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
       {label}
     </div>
   )
 }
+
+const exitBtnStyle: preact.JSX.CSSProperties = {
+  padding: '3px 9px', borderRadius: 4,
+  background: '#1e1a2e', border: '1px solid #334155',
+  color: '#64748b', fontSize: 10, cursor: 'pointer',
+  fontFamily: 'monospace', letterSpacing: '0.06em',
+}
+
+// ── Phase colors ─────────────────────────────────────────────────────────
 
 export function getPhaseColor(phase: string): string {
   switch (phase) {
     case 'idle': return '#64748b'
     case 'arming': return '#f59e0b'
     case 'takeoff': return '#3b82f6'
-    case 'transit': return '#6366f1'
-    case 'resume_transit': return '#6366f1'
+    case 'transit': case 'resume_transit': return '#6366f1'
     case 'scanning': return '#06b6d4'
     case 'candidate_detected': return '#f97316'
     case 'target_lock': return '#22d3ee'
@@ -152,6 +292,25 @@ export function getPhaseColor(phase: string): string {
     case 'pollinating': return '#a78bfa'
     case 'ascent': return '#3b82f6'
     case 'mission_complete': return '#22c55e'
+    default: return '#64748b'
+  }
+}
+
+function getLivePhaseColor(phase: string): string {
+  switch (phase) {
+    case 'idle': return '#64748b'
+    case 'arming': return '#f59e0b'
+    case 'takeoff': return '#3b82f6'
+    case 'scanning': return '#06b6d4'
+    case 'planning': return '#818cf8'
+    case 'approach': return '#6366f1'
+    case 'descent': return '#f97316'
+    case 'hover_align': return '#fb923c'
+    case 'pollinating': return '#a78bfa'
+    case 'ascent': return '#3b82f6'
+    case 'resume': return '#6366f1'
+    case 'mission_complete': return '#22c55e'
+    case 'landing': return '#3b82f6'
     default: return '#64748b'
   }
 }
