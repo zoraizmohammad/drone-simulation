@@ -33,7 +33,9 @@ function seededRng(seed: number) {
 
 function FlowerClusterSVG({ cluster, frameTime }: { cluster: FlowerCluster; frameTime: number }) {
   const center = gardenToSvg(cluster.x, cluster.y)
-  const rng = seededRng(parseInt(cluster.id.replace('f', '')) * 31)
+  // Support both 'f1' and 'r1' style IDs — strip all non-digit chars
+  const numId = parseInt(cluster.id.replace(/\D/g, '')) || 1
+  const rng = seededRng(numId * 31)
 
   const flowers: Array<{ ox: number; oy: number; scale: number; rotOffset: number }> = []
   for (let i = 0; i < cluster.flowerCount; i++) {
@@ -50,18 +52,25 @@ function FlowerClusterSVG({ cluster, frameTime }: { cluster: FlowerCluster; fram
   const petalH = 11
   const pistilR = 3.5
 
+  const isDiscovered = cluster.state === 'discovered'
   const isScanned = cluster.state === 'scanned'
   const isCandidate = cluster.state === 'candidate'
   const isLocked = cluster.state === 'locked'
   const isPollinated = cluster.state === 'pollinated'
 
-  const opacity = isPollinated ? 0.55 : (cluster.state === 'unscanned' ? 0.7 : 1)
+  const opacity = isPollinated ? 0.55 : (cluster.state === 'unscanned' ? 0.7 : isDiscovered ? 0.6 : 1)
 
   const ringRadius = 18 * (0.8 + rng() * 0.4)
 
   return (
     <g>
       {/* State rings */}
+      {isDiscovered && (
+        <circle cx={center.x} cy={center.y} r={ringRadius - 2} fill="none"
+          stroke="#4ade80" strokeWidth="1" strokeDasharray="2,5" opacity={0.5}>
+          <animate attributeName="opacity" values="0.3; 0.7; 0.3" dur="2s" repeatCount="indefinite" />
+        </circle>
+      )}
       {isScanned && (
         <circle cx={center.x} cy={center.y} r={ringRadius} fill="none"
           stroke="#38bdf8" strokeWidth="1" strokeDasharray="3,3" opacity={0.6} />
@@ -378,8 +387,8 @@ export function TopDownView({ frame, positionHistory, liveFrame }: Props) {
         )
       })()}
 
-      {/* Mode 2: TSP route overlay (after planning) */}
-      {isLiveMode && liveFrame!.planningComplete && liveFrame!.tspRoute.length > 1 && (() => {
+      {/* Mode 2: TSP route overlay — shown live as flowers are discovered */}
+      {isLiveMode && liveFrame!.tspRoute.length > 1 && (() => {
         const routeFlowers = liveFrame!.tspRoute
           .map(id => liveFrame!.flowers.find(f => f.id === id))
           .filter(Boolean) as typeof liveFrame.flowers
@@ -413,8 +422,11 @@ export function TopDownView({ frame, positionHistory, liveFrame }: Props) {
         )
       })()}
 
-      {/* Flower clusters */}
-      {frame.flowers.map(cluster => (
+      {/* Flower clusters — in live mode skip 'unscanned' (ghosts handle those) */}
+      {(isLiveMode
+        ? frame.flowers.filter(c => c.state !== 'unscanned')
+        : frame.flowers
+      ).map(cluster => (
         <FlowerClusterSVG key={cluster.id} cluster={cluster} frameTime={frame.time} />
       ))}
 

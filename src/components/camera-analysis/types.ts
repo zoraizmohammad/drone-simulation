@@ -6,7 +6,7 @@ export interface FlowerRenderState {
   color: string
   accentColor: string
   rngSeed: number
-  state: 'unscanned' | 'scanned' | 'candidate' | 'locked' | 'pollinated'
+  state: 'unscanned' | 'discovered' | 'scanned' | 'candidate' | 'locked' | 'pollinated'
   confidence: number
   isTarget: boolean
 }

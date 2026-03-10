@@ -49,8 +49,8 @@ function liveToReplay(lf: LiveFrame): ReplayFrame {
     flowers: lf.flowers.map(f => ({
       ...f,
       state: (
-        f.state === 'undiscovered' ? 'unscanned' :
-        f.state === 'discovered'   ? 'scanned'   :
+        f.state === 'undiscovered' ? 'unscanned'  :
+        f.state === 'discovered'   ? 'discovered' :
         f.state
       ) as FlowerCluster['state'],
     })),

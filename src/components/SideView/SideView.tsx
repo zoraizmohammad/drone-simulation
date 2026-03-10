@@ -18,7 +18,8 @@ const CHART_W = SVG_W - MARGIN_L - MARGIN_R
 const CHART_H = SVG_H - MARGIN_T - MARGIN_B
 
 function altToY(alt: number): number {
-  return MARGIN_T + CHART_H - (alt / MAX_ALT) * CHART_H
+  const clamped = Math.max(0, Math.min(MAX_ALT, alt))
+  return MARGIN_T + CHART_H - (clamped / MAX_ALT) * CHART_H
 }
 
 const ALT_MARKERS = [0, 2, 5, 8, 10]
@@ -72,13 +73,17 @@ export function SideView({ frame, altitudeHistory }: Props) {
   const droneChartX = MARGIN_L + hFrac * CHART_W
   const droneChartY = altToY(drone.z)
 
-  // Altitude trace path
+  // Altitude trace path — rolling 60s window so lines never overflow the chart
   let tracePath = ''
   if (altitudeHistory.length > 1) {
+    const latestT = altitudeHistory[altitudeHistory.length - 1].time
+    const windowS = 60
+    const startT  = Math.max(0, latestT - windowS)
     const points = altitudeHistory.map(pt => {
-      const xf = MARGIN_L + (pt.time / 90) * CHART_W
-      const y = altToY(pt.z)
-      return `${xf},${y}`
+      const xFrac = Math.max(0, Math.min(1, (pt.time - startT) / windowS))
+      const xf = MARGIN_L + xFrac * CHART_W
+      const y  = altToY(pt.z)
+      return `${xf.toFixed(1)},${y.toFixed(1)}`
     })
     tracePath = `M ${points.join(' L ')}`
   }

@@ -19,7 +19,7 @@ export interface FlowerCluster {
   flowerCount: number;
   color: string;       // primary petal color
   accentColor: string; // secondary/center color
-  state: 'unscanned' | 'scanned' | 'candidate' | 'locked' | 'pollinated';
+  state: 'unscanned' | 'discovered' | 'scanned' | 'candidate' | 'locked' | 'pollinated';
   confidence: number;  // 0-1 detection confidence
 }
 
@@ -113,6 +113,7 @@ export interface InferenceResult {
   inferenceMs: number
   inferenceMode: 'onnx' | 'mock'
   framePng: string | null
+  tspSuggestion: string[]  // server-computed TSP visit order for detected flowers
 }
 
 export interface LiveFrame {

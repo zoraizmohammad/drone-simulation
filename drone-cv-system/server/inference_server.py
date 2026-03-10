@@ -69,6 +69,45 @@ app.add_middleware(
 )
 
 
+def _compute_tsp_suggestion(
+    detections: list[dict[str, Any]],
+    flowers: list[dict[str, Any]],
+    drone_x: float,
+    drone_y: float,
+) -> list[str]:
+    """
+    Nearest-neighbour TSP heuristic over detected flowers.
+
+    The client sends the full flowers list with garden-space (x, y) coordinates.
+    We join detections → flower positions to compute a suggested visit order.
+    This is the 'planning agent' layer: it supplements the JS navigator's own
+    route planner with a server-side view that covers all currently-visible flowers.
+    """
+    flower_map: dict[str, dict[str, Any]] = {f['id']: f for f in flowers}
+    candidates = [
+        {'id': d['id'],
+         'gx': flower_map[d['id']]['x'],
+         'gy': flower_map[d['id']]['y'],
+         'confidence': d['confidence']}
+        for d in detections
+        if d['id'] in flower_map
+    ]
+    if not candidates:
+        return []
+
+    unvisited = list(candidates)
+    route: list[str] = []
+    cx, cy = drone_x, drone_y
+
+    while unvisited:
+        best = min(unvisited, key=lambda c: (c['gx'] - cx) ** 2 + (c['gy'] - cy) ** 2)
+        route.append(best['id'])
+        cx, cy = best['gx'], best['gy']
+        unvisited.remove(best)
+
+    return route
+
+
 def _phase_suggestion(detections: list[dict[str, Any]], current_phase: str) -> str:
     """Simple phase transition logic mirroring the TypeScript state machine."""
     if not detections:
@@ -135,8 +174,12 @@ async def inference_endpoint(ws: WebSocket) -> None:
                     None, frame_to_base64, frame_arr
                 )
 
-            phase_sug = _phase_suggestion(dets, phase)
-            target_id = dets[0]['id'] if dets else None
+            phase_sug  = _phase_suggestion(dets, phase)
+            target_id  = dets[0]['id'] if dets else None
+            tsp_suggest = _compute_tsp_suggestion(
+                dets, flowers,
+                drone.get('x', 0.0), drone.get('y', 0.0),
+            )
 
             response = {
                 'detections':      dets,
@@ -145,6 +188,7 @@ async def inference_endpoint(ws: WebSocket) -> None:
                 'inferenceMs':     round(elapsed_ms, 1),
                 'inferenceMode':   mode_used,
                 'framePng':        frame_b64,
+                'tspSuggestion':   tsp_suggest,
             }
 
             await ws.send_json(response)
