@@ -141,6 +141,26 @@ export interface EventLogEntry {
   level: 'info' | 'warn' | 'success' | 'event';
 }
 
+export type TerminalEntryType =
+  | 'sys'     // slate   — connection / session events
+  | 'phase'   // purple  — drone state machine transitions
+  | 'ws-out'  // blue    — WebSocket frames sent to server
+  | 'ws-in'   // cyan    — WebSocket frames received from server
+  | 'detect'  // green   — individual flower detections
+  | 'tsp'     // amber   — TSP route planning updates
+  | 'nav'     // gray    — proximity detection / navigation
+  | 'error'   // red     — connection errors
+
+export interface TerminalEntry {
+  id: number
+  ts: number              // performance.now() in ms at emit time
+  type: TerminalEntryType
+  text: string
+}
+
+/** Callback signature shared by WsClient and AutonomousNavigator */
+export type TerminalLogFn = (type: TerminalEntryType, text: string, ts?: number) => void
+
 export interface ReplayFrame {
   time: number; // seconds from mission start
   drone: DroneState;
