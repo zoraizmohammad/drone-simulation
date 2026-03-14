@@ -2,7 +2,7 @@ import type { WsStatus } from '../../simulation/wsClient'
 
 interface Props {
   wsStatus: WsStatus
-  inferenceMode: 'onnx' | 'mock' | null
+  inferenceMode: 'coral' | 'onnx' | 'mock' | null
   inferenceMs: number
   onRestart: () => void
   onExit: () => void
@@ -52,16 +52,30 @@ export function LiveStatus({ wsStatus, inferenceMode, inferenceMs, onRestart, on
         </span>
       </div>
 
-      {/* Inference mode chip */}
+      {/* Inference mode chip — coral (TPU) / onnx (CPU fallback) / mock (physics) */}
       {inferenceMode && (
         <div style={{
           padding: '3px 9px', borderRadius: 4, fontSize: 9, fontWeight: 700,
           letterSpacing: '0.1em', textTransform: 'uppercase',
-          background: inferenceMode === 'onnx' ? '#7c3aed22' : '#0e7490',
-          color: inferenceMode === 'onnx' ? '#a78bfa' : '#67e8f9',
-          border: `1px solid ${inferenceMode === 'onnx' ? '#a78bfa44' : '#22d3ee44'}`,
+          background: inferenceMode === 'coral'
+            ? '#14532d40'
+            : inferenceMode === 'onnx'
+            ? '#7c3aed22'
+            : '#0e7490',
+          color: inferenceMode === 'coral'
+            ? '#4ade80'
+            : inferenceMode === 'onnx'
+            ? '#a78bfa'
+            : '#67e8f9',
+          border: `1px solid ${
+            inferenceMode === 'coral'
+              ? '#4ade8044'
+              : inferenceMode === 'onnx'
+              ? '#a78bfa44'
+              : '#22d3ee44'
+          }`,
         }}>
-          {inferenceMode === 'onnx' ? 'ONNX' : 'MOCK'} · {inferenceMs.toFixed(0)}ms
+          {inferenceMode === 'coral' ? '⬡ CORAL TPU' : inferenceMode === 'onnx' ? 'ONNX' : 'MOCK'} · {inferenceMs.toFixed(0)}ms
         </div>
       )}
 
