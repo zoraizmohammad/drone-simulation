@@ -1,0 +1,44 @@
+# Mission Parameters
+mission:
+  garden_size_m: 20.0           # Garden is 20m x 20m
+  patrol_altitude_m: 8.0        # Transit/scanning altitude
+  hover_altitude_m: 1.5         # Pollination hover altitude
+  hover_band_m: 0.3             # ±0.3m is "in hover band"
+  max_targets: 8                # Max flowers to pollinate per mission
+  search_overlap_pct: 0.3       # 30% overlap between search strips
+  target_lock_confidence: 0.75  # Confidence threshold to lock a target
+  pollination_dwell_s: 3.0      # Seconds to hold pollination position
+  home_position:
+    lat: 0.0                    # Replace with actual GPS lat
+    lon: 0.0                    # Replace with actual GPS lon
+    alt_m: 0.0
+
+# Flight Limits
+limits:
+  max_speed_ms: 3.0             # Max horizontal speed (m/s)
+  max_descent_rate_ms: 0.8      # Max descent rate during precision descent
+  max_ascent_rate_ms: 1.5
+  min_battery_pct: 20.0         # Return to home if battery drops below this
+  geofence_radius_m: 15.0       # Stay within 15m of home
+
+# Pixhawk Connection
+pixhawk:
+  connection_string: "/dev/ttyAMA0"   # UART on Raspberry Pi GPIO pins 8/10
+  baud_rate: 921600
+  # Alternatively for USB: "/dev/ttyACM0" at 115200
+  # Or UDP for SITL testing: "udpin:localhost:14551"
+  heartbeat_timeout_s: 5.0
+  command_retry_count: 3
+  guided_mode: "GUIDED"               # PX4: "OFFBOARD", ArduPilot: "GUIDED"
+
+# Optical Flow Sensor (PX4FLOW or similar)
+optical_flow:
+  min_quality: 100              # Min quality value (0-255) to trust reading
+  integration_window_ms: 50     # Integration window for flow vectors
+  focal_length_px: 16.0         # Sensor focal length in pixels
+
+# Rangefinder
+rangefinder:
+  min_valid_m: 0.2
+  max_valid_m: 12.0
+  sensor_orientation: 25        # MAV_SENSOR_ROTATION_PITCH_270 (downward)

@@ -2,3 +2,13 @@ node_modules/
 dist/
 .DS_Store
 *.local
+
+# Python (drone-cv-system)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+*.egg-info/
+drone-cv-system/ml/weights/*.onnx
