@@ -1,46 +1,49 @@
 """
 Pollination Manager
 -------------------
-Tracks which flowers have been visited, manages the pollination servo/brush
+Tracks which flowers have been visited, manages the pollen-dispenser servo
 mechanism, and maintains the target queue.
 
-Physical pollination mechanism options:
-  Option A: Servo-actuated brush — a small rotating brush mounted below the
-            drone extends on a servo when triggered. The brush physically
-            contacts the flower stamen. Simple, reliable, ~20g.
+Physical pollination mechanism:
+  Micro servo arm actuates a lightweight pollen-dispenser assembly mounted
+  below the drone frame. On trigger, the servo rotates the arm to the flower
+  and holds for the dwell time, then retracts to the stowed position.
 
-  Option B: Air puff — a small air pump creates a puff of air through a nozzle,
-            displacing pollen. No contact needed, works from ~5cm.
+Preferred control path — Pixhawk AUX OUT 1 via MAVLink (Option A):
+  Signal: Pixhawk AUX OUT 1 → Servo signal wire (orange/white)
+  Power:  Dedicated 5V BEC  → Servo power (red)  [NOT the RPi 5V pin]
+  Ground: Common GND        → Servo ground (brown/black)
+  Command: FlightController.trigger_aux_servo() → MAVLink DO_SET_SERVO
+  Advantage: Hardware PWM timing, DataFlash logged, failsafe-retract if
+             companion computer drops out.
+  ArduCopter param required: SERVO9_FUNCTION = 0  (AUX OUT 1 passthrough)
 
-  Option C: Electrostatic — charged bristles attract pollen electrostatically.
-
-This module uses Raspberry Pi GPIO to trigger whichever mechanism is wired up.
-Default: GPIO PWM servo signal on pin 18.
-
-Wiring (Option A — servo):
-  RPi GPIO 18 (PWM0) → Servo signal wire (orange)
-  RPi 5V             → Servo power (red)
-  RPi GND            → Servo ground (brown/black)
-  Servo horn angle 0°  = retracted (safe position)
-  Servo horn angle 90° = deployed (brush contacts flower)
+Fallback path — RPi GPIO direct PWM (Option B):
+  Signal: RPi GPIO 18 (PWM0) → Servo signal wire
+  Power:  Dedicated 5V BEC   → Servo power  (still NOT the RPi 5V pin)
+  Ground: Common GND         → Servo ground
+  Used automatically when no MAVLink interface is supplied.
 """
 
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from loguru import logger
 
 from mission.search_pattern import Waypoint, GARDEN_FLOWER_CLUSTERS, SearchPatternGenerator
+
+if TYPE_CHECKING:
+    from pixhawk.flight_controller import FlightController
 
 try:
     import RPi.GPIO as GPIO
     GPIO_AVAILABLE = True
 except (ImportError, RuntimeError):
     GPIO_AVAILABLE = False
-    logger.warning("RPi.GPIO not available — servo commands will be simulated")
+    logger.warning("RPi.GPIO not available — GPIO servo path will be simulated")
 
 
 @dataclass
@@ -61,79 +64,94 @@ class FlowerTarget:
 
 class PollinationServo:
     """
-    Controls the pollination actuator via Raspberry Pi GPIO PWM.
+    Controls the pollen-dispenser servo.
 
-    PWM servo control:
-      50Hz signal (standard servo frequency)
-      1.0ms pulse = 0° (retracted)
-      1.5ms pulse = 90° (halfway)
-      2.0ms pulse = 180° (fully deployed)
+    Primary path — Pixhawk AUX OUT 1 via MAVLink DO_SET_SERVO:
+      Pass a FlightController instance to __init__ to enable this path.
+      The servo is driven by the Pixhawk hardware PWM timer; commands are
+      logged in DataFlash and are failsafe-aware.
 
-    Duty cycle = pulse_width_ms / period_ms * 100
-      At 50Hz: period = 20ms
-      1.0ms → duty = 5.0%
-      1.5ms → duty = 7.5%
-      2.0ms → duty = 10.0%
+    Fallback path — RPi GPIO direct PWM:
+      Used when no FlightController is supplied (bench testing / no Pixhawk).
+      50 Hz PWM on GPIO 18; timing depends on Linux scheduler (±1–2 ms jitter).
+
+    Standard servo PWM:
+      1000 µs = 0°   (fully retracted / stowed)
+      1500 µs = 90°  (mid-point)
+      1700 µs = ~135° (deployed — dispenser arm contacts flower zone)
+      2000 µs = 180° (full travel, not normally used)
     """
 
-    GPIO_PIN = 18
-    PWM_FREQ_HZ = 50
+    # --- MAVLink AUX path constants ---
+    AUX_CHANNEL = 1           # AUX OUT 1 on Pixhawk 2.4.8
+    RETRACTED_US = 1000       # 0° — stowed
+    DEPLOYED_US  = 1700       # ~135° — dispenser arm deployed
 
-    RETRACTED_DUTY = 5.0     # 1.0ms pulse — brush retracted
-    DEPLOYED_DUTY = 8.5      # 1.7ms pulse — brush extended to flower
-    SPIN_DUTY = 7.5          # 1.5ms — spin position (for rotating brush)
+    # --- GPIO fallback path constants ---
+    GPIO_PIN     = 18         # BCM GPIO 18 (hardware PWM0)
+    PWM_FREQ_HZ  = 50
+    RETRACTED_DUTY = 5.0      # 1.0 ms / 20 ms = 5%
+    DEPLOYED_DUTY  = 8.5      # 1.7 ms / 20 ms = 8.5%
 
-    def __init__(self):
+    def __init__(self, flight_controller: Optional['FlightController'] = None):
+        self._fc = flight_controller
         self._pwm = None
         self._deployed = False
-        if GPIO_AVAILABLE:
+
+        if self._fc is not None:
+            logger.info("Pollination servo: MAVLink AUX OUT 1 path active (Pixhawk 2.4.8)")
+            # Ensure servo starts in retracted position
+            self._fc.mav.set_aux_servo(self.AUX_CHANNEL, self.RETRACTED_US)
+        elif GPIO_AVAILABLE:
             GPIO.setmode(GPIO.BCM)
             GPIO.setup(self.GPIO_PIN, GPIO.OUT)
             self._pwm = GPIO.PWM(self.GPIO_PIN, self.PWM_FREQ_HZ)
             self._pwm.start(self.RETRACTED_DUTY)
-            logger.info(f"Pollination servo initialized on GPIO {self.GPIO_PIN}")
+            logger.info(f"Pollination servo: GPIO fallback on pin {self.GPIO_PIN}")
         else:
-            logger.info("Pollination servo: SIMULATION MODE")
+            logger.info("Pollination servo: SIMULATION MODE (no hardware)")
 
-    def deploy(self, hold_seconds: float = 2.0):
-        """
-        Extend the brush to contact the flower.
-        Holds in contact for hold_seconds, then retracts.
-        """
+    def deploy(self, hold_seconds: float = 2.5):
+        """Extend dispenser arm to the flower zone, dwell, then retract."""
         logger.info(f"Servo DEPLOY — hold {hold_seconds}s")
-        self._set_duty(self.DEPLOYED_DUTY)
+        self._actuate(deployed=True)
         self._deployed = True
         time.sleep(hold_seconds)
         self.retract()
 
     def retract(self):
-        """Retract the brush to safe position."""
+        """Return dispenser arm to stowed position."""
         logger.info("Servo RETRACT")
-        self._set_duty(self.RETRACTED_DUTY)
+        self._actuate(deployed=False)
         self._deployed = False
 
-    def pulse(self, pulses: int = 3, pulse_duration_s: float = 0.3):
-        """
-        Pulse the brush in/out multiple times for better pollen transfer.
-        """
+    def pulse(self, pulses: int = 3, pulse_duration_s: float = 0.4):
+        """Pulse the dispenser arm for better pollen distribution."""
         for i in range(pulses):
             logger.debug(f"Servo pulse {i+1}/{pulses}")
-            self._set_duty(self.DEPLOYED_DUTY)
+            self._actuate(deployed=True)
             time.sleep(pulse_duration_s)
-            self._set_duty(self.RETRACTED_DUTY)
+            self._actuate(deployed=False)
             time.sleep(pulse_duration_s * 0.5)
 
     def cleanup(self):
         if self._pwm:
             self._pwm.stop()
-        if GPIO_AVAILABLE:
+        if GPIO_AVAILABLE and self._fc is None:
             GPIO.cleanup(self.GPIO_PIN)
 
-    def _set_duty(self, duty: float):
-        if self._pwm:
+    def _actuate(self, deployed: bool):
+        if self._fc is not None:
+            # Primary: Pixhawk AUX OUT via MAVLink
+            pwm = self.DEPLOYED_US if deployed else self.RETRACTED_US
+            self._fc.mav.set_aux_servo(self.AUX_CHANNEL, pwm)
+        elif self._pwm is not None:
+            # Fallback: GPIO PWM
+            duty = self.DEPLOYED_DUTY if deployed else self.RETRACTED_DUTY
             self._pwm.ChangeDutyCycle(duty)
         else:
-            logger.debug(f"[SIM] Servo duty cycle: {duty:.1f}%")
+            state = "DEPLOYED" if deployed else "RETRACTED"
+            logger.debug(f"[SIM] Servo → {state}")
 
     def __del__(self):
         try:
@@ -154,12 +172,18 @@ class PollinationManager:
         mgr.mark_pollinated(target)
     """
 
-    def __init__(self, config_path: str = "config/mission_config.yaml"):
+    def __init__(
+        self,
+        config_path: str = "config/mission_config.yaml",
+        flight_controller: Optional['FlightController'] = None,
+    ):
         import yaml
         with open(config_path) as f:
             self.config = yaml.safe_load(f)
 
-        self._servo = PollinationServo()
+        # Pass flight_controller so servo uses MAVLink AUX OUT 1 (preferred)
+        # when running on the real drone; falls back to GPIO when fc=None
+        self._servo = PollinationServo(flight_controller=flight_controller)
         self._targets: List[FlowerTarget] = []
         self._pattern_gen = SearchPatternGenerator(config_path)
         self._build_target_list()
