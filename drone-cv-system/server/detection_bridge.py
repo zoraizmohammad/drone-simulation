@@ -1,6 +1,16 @@
 """
-Detection bridge — tries ONNX inference first, falls back to mock physics model.
-Both paths return the same JSON-serialisable dict format.
+Detection bridge — three-tier inference hierarchy for the simulation server.
+
+Priority order:
+  1. CoralBridge  — Google Coral USB TPU (pycoral + _edgetpu.tflite model)
+  2. OnnxDetector — YOLOv8n ONNX Runtime CPU (~8-12 FPS at 640×640)
+  3. MockDetector — physics-based projection model (always available)
+
+All paths return the same JSON-serialisable dict format:
+  [{ 'id': str, 'confidence': float, 'cls': str, 'bbox': [x1,y1,x2,y2] }]
+
+The 'mode' field returned by DetectionBridge.detect() reflects which path ran:
+  'coral', 'onnx', or 'mock'
 """
 
 from __future__ import annotations
@@ -188,20 +198,125 @@ class OnnxDetector:
         return sorted(detections, key=lambda d: -d['confidence'])
 
 
+class CoralBridge:
+    """
+    Coral USB TPU inference path for the simulation server.
+    Wraps the CoralDetector (pycoral) and matches detected boxes to garden
+    flowers using the same projection used by OnnxDetector.
+
+    Only active when:
+      - A *_edgetpu.tflite model file is found
+      - pycoral is installed
+      - A physical Coral USB TPU is connected (or Coral PCIe on desktop)
+    """
+
+    def __init__(self, model_path: str):
+        self._detector = None
+        self._available = False
+
+        try:
+            import sys, os
+            # Add parent dir so coral_detector is importable from server context
+            parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if parent not in sys.path:
+                sys.path.insert(0, parent)
+            from cv.coral_detector import CoralDetector
+            det = CoralDetector(model_path, conf_threshold=0.30)
+            if det.available:
+                self._detector = det
+                self._available = True
+                logger.info(f'CoralBridge ready: {model_path}')
+            else:
+                logger.warning('CoralDetector loaded but Coral TPU not detected')
+        except Exception as e:
+            logger.warning(f'CoralBridge init failed ({e})')
+
+    @property
+    def available(self) -> bool:
+        return self._available
+
+    def detect(
+        self,
+        frame_arr: 'Any',           # float32 HWC [640,640,3] from scene_renderer
+        flowers: list[dict[str, Any]],
+        drone: dict[str, Any],
+    ) -> tuple[list[dict[str, Any]], float]:
+        """
+        Run Coral TPU inference and match detections to garden flowers.
+        Returns (detections_list, elapsed_ms).
+        """
+        import numpy as np
+        # scene_renderer gives float32 [0,1] — convert to uint8 for Coral
+        if frame_arr.dtype != np.uint8:
+            frame_u8 = (np.clip(frame_arr, 0.0, 1.0) * 255).astype(np.uint8)
+        else:
+            frame_u8 = frame_arr
+
+        coral_dets, elapsed_ms = self._detector.detect(frame_u8)
+
+        # Match Coral boxes to projected garden flowers (same as OnnxDetector)
+        coral_input_h = self._detector._input_details[0]['shape'][1]
+        coral_input_w = self._detector._input_details[0]['shape'][2]
+
+        detections = []
+        matched: set[str] = set()
+        for d in coral_dets:
+            # Scale bbox from Coral input resolution to IMG_SIZE (640)
+            scale_x = IMG_SIZE / coral_input_w
+            scale_y = IMG_SIZE / coral_input_h
+            box_cx = (d.x1 + d.x2) / 2 * scale_x
+            box_cy = (d.y1 + d.y2) / 2 * scale_y
+            x1 = d.x1 * scale_x
+            y1 = d.y1 * scale_y
+            x2 = d.x2 * scale_x
+            y2 = d.y2 * scale_y
+
+            best_fid, best_dist = None, 999
+            for fl in flowers:
+                proj = _project_flower(fl, drone)
+                if proj is None:
+                    continue
+                dist = math.hypot(box_cx - proj['u'], box_cy - proj['v'])
+                if dist < best_dist and dist < proj['radius'] * 2.5:
+                    best_dist, best_fid = dist, fl['id']
+
+            if best_fid and best_fid not in matched:
+                matched.add(best_fid)
+                detections.append({
+                    'id': best_fid,
+                    'confidence': round(float(d.confidence), 3),
+                    'cls': d.class_name,
+                    'bbox': [int(x1), int(y1), int(x2), int(y2)],
+                })
+
+        return sorted(detections, key=lambda d: -d['confidence']), elapsed_ms
+
+
 class DetectionBridge:
     """
-    Unified detection interface.
-    Tries ONNX; falls back to mock on any failure.
+    Unified detection interface — three-tier hierarchy:
+      1. CoralBridge  (Google Coral USB TPU, fastest)
+      2. OnnxDetector (YOLOv8n ONNX CPU, fallback)
+      3. MockDetector (physics model, always available)
     """
 
     TIMEOUT_S = 2.0
 
-    def __init__(self, model_path: str | None = None):
+    def __init__(self, model_path: str | None = None, coral_path: str | None = None):
         self.mock = MockDetector()
         self.onnx: OnnxDetector | None = None
+        self.coral: CoralBridge | None = None
         self._mode = 'mock'
 
-        if model_path and os.path.exists(model_path):
+        # Try Coral TPU first
+        if coral_path and os.path.exists(coral_path):
+            bridge = CoralBridge(coral_path)
+            if bridge.available:
+                self.coral = bridge
+                self._mode = 'coral'
+
+        # ONNX fallback if no Coral
+        if self.coral is None and model_path and os.path.exists(model_path):
             try:
                 self.onnx = OnnxDetector(model_path)
                 self._mode = 'onnx'
@@ -220,13 +335,25 @@ class DetectionBridge:
     ) -> tuple[list[dict[str, Any]], str, float]:
         """
         Returns (detections, mode_used, elapsed_ms).
-        Always falls back to mock on any error.
+        Tries coral → onnx → mock in order; always returns a result.
         """
         t0 = time.perf_counter()
 
+        # --- Coral TPU path ---
+        if self.coral is not None:
+            try:
+                dets, elapsed = self.coral.detect(frame_arr, flowers, drone)
+                if (time.perf_counter() - t0) > self.TIMEOUT_S:
+                    raise TimeoutError(f'Coral took {elapsed:.0f}ms')
+                return dets, 'coral', elapsed
+            except Exception as e:
+                logger.warning(f'Coral inference failed ({e}), falling back to ONNX/mock')
+                self.coral = None
+                self._mode = 'onnx' if self.onnx else 'mock'
+
+        # --- ONNX path ---
         if self.onnx is not None:
             try:
-                # Enforce timeout via simple elapsed check post-call
                 dets = self.onnx.detect(frame_arr, flowers, drone)
                 elapsed = (time.perf_counter() - t0) * 1000
                 if elapsed > self.TIMEOUT_S * 1000:
@@ -235,8 +362,9 @@ class DetectionBridge:
             except Exception as e:
                 logger.warning(f'ONNX inference failed ({e}), falling back to mock')
                 self._mode = 'mock'
-                self.onnx = None  # disable for future calls
+                self.onnx = None
 
+        # --- Mock fallback (always available) ---
         dets = self.mock.detect(drone, flowers)
         elapsed = (time.perf_counter() - t0) * 1000
         return dets, 'mock', elapsed
