@@ -42,12 +42,16 @@ logging.basicConfig(
 )
 log = logging.getLogger('inference_server')
 
-# ── Model path ──────────────────────────────────────────────────────────────
-MODELS_DIR  = os.path.join(HERE, '..', 'models')
-MODEL_PATH  = os.path.join(MODELS_DIR, 'flower_detector.onnx')
+# ── Model paths ─────────────────────────────────────────────────────────────
+MODELS_DIR   = os.path.join(HERE, '..', 'models')
+ONNX_PATH    = os.path.join(MODELS_DIR, 'flower_detector.onnx')
+# Google Coral USB TPU model (EdgeTPU-compiled TFLite, INT8 quantized)
+# Generate with: edgetpu_compiler flower_detector.tflite
+# Install runtime: pip install pycoral  +  sudo apt install libedgetpu1-std
+CORAL_PATH   = os.path.join(MODELS_DIR, 'flower_detector_edgetpu.tflite')
 
-# Try to auto-generate the model if missing
-if not os.path.exists(MODEL_PATH):
+# Try to auto-generate the ONNX model if missing (for ONNX fallback path)
+if not os.path.exists(ONNX_PATH):
     log.info('flower_detector.onnx not found — attempting auto-generation…')
     try:
         import generate_model  # type: ignore
@@ -55,8 +59,12 @@ if not os.path.exists(MODEL_PATH):
     except Exception as e:
         log.warning(f'Auto-generation failed ({e}). Server will use mock detector.')
 
-bridge = DetectionBridge(MODEL_PATH if os.path.exists(MODEL_PATH) else None)
-log.info(f'Detection bridge ready — mode: {bridge.mode}')
+bridge = DetectionBridge(
+    model_path=ONNX_PATH if os.path.exists(ONNX_PATH) else None,
+    coral_path=CORAL_PATH if os.path.exists(CORAL_PATH) else None,
+)
+log.info(f'Detection bridge ready — mode: {bridge.mode}  '
+         f'(coral={os.path.exists(CORAL_PATH)}, onnx={os.path.exists(ONNX_PATH)})')
 
 # ── FastAPI app ─────────────────────────────────────────────────────────────
 app = FastAPI(title='Pollinator Drone Inference Server')
