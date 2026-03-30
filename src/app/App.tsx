@@ -88,7 +88,15 @@ export function App() {
             <div style={{ flexShrink: 0, padding: '4px 10px', fontSize: '10px', color: '#64748b', letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid #0f2744' }}>
               Camera / Flower Analysis
             </div>
-            <div style={{ width: '100%', height: '100%', minHeight: '300px', position: 'relative', overflow: 'hidden', flex: 1 }}>
+            <div style={{
+              width: '100%',
+              height: '100%',
+              minHeight: '320px',
+              position: 'relative',
+              overflow: 'hidden',
+              display: 'block',
+              flex: 1,
+            }}>
               {replay.currentFrame ? <ZoomPanel frame={replay.currentFrame} /> : <Placeholder label="Zoom Panel" />}
             </div>
           </div>
