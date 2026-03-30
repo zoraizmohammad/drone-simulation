@@ -131,12 +131,12 @@ python3 main.py
 ║   missionGenerator.ts                randomMissionGenerator.ts            ║
 ║   (2700 ReplayFrames,                (random garden, 6–10 flowers,        ║
 ║    seeded PRNG, 30 fps)               lawnmower scan, seeded PRNG)        ║
-║         ↓                                      ↓                         ║
+║         ↓                                      ↓                          ║
 ║   useReplayEngine                    useLiveInferenceEngine               ║
 ║   (RAF loop, seek,                   (RAF loop, AutonomousNavigator,      ║
 ║    speed multiplier)                  WsClient, terminal buffer)          ║
-║         ↓                                      ↓                         ║
-║   ┌─────────────────── liveToReplay() adapter ─────────────────┐         ║
+║         ↓                                      ↓                          ║
+║   ┌─────────────────── liveToReplay() adapter ─────────────────┐          ║
 ║   │           4 SVG Panels (shared between both modes)          │         ║
 ║   │   TopDownView · SideView · TelemetryPanel · CameraAnalysis  │         ║
 ║   └──────────────────────────────────────────────────────────── ┘         ║
@@ -148,16 +148,16 @@ python3 main.py
 ║                                                                           ║
 ║   FastAPI + uvicorn WebSocket endpoint                                    ║
 ║         ↓                                                                 ║
-║   scene_renderer.py  →  PIL 640×640 photorealistic frame                 ║
+║   scene_renderer.py  →  PIL 640×640 photorealistic frame                  ║
 ║         ↓                                                                 ║
 ║   DetectionBridge                                                         ║
 ║     ├─ CoralBridge   →  Google Coral USB TPU (_edgetpu.tflite)            ║
-║     ├─ OnnxDetector  →  YOLOv8n ONNX CPU  →  bbox parse  →  geo-match   ║
+║     ├─ OnnxDetector  →  YOLOv8n ONNX CPU  →  bbox parse  →  geo-match     ║
 ║     └─ MockDetector  →  physics confidence (altitude + distance)          ║
 ║         ↓                                                                 ║
-║   Planning Agent (_compute_tsp_suggestion)  →  TSP route                 ║
+║   Planning Agent (_compute_tsp_suggestion)  →  TSP route                  ║
 ║         ↓                                                                 ║
-║   JSON response  {detections, phaseSuggestion, tspSuggestion, framePng}  ║
+║   JSON response  {detections, phaseSuggestion, tspSuggestion, framePng}   ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 
 ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -165,20 +165,20 @@ python3 main.py
 ║                                                                           ║
 ║   RPi Camera v2 (CSI)                                                     ║
 ║         ↓                                                                 ║
-║   FramePreprocessor  →  640×640 RGB normalized tensor                    ║
+║   FramePreprocessor  →  640×640 RGB normalized tensor                     ║
 ║         ↓                                                                 ║
-║   FlowerDetector (YOLOv8n ONNX, ONNX Runtime)                            ║
+║   FlowerDetector (YOLOv8n ONNX, ONNX Runtime)                             ║
 ║         ↓                                                                 ║
-║   OpticalFlowTracker (Lucas-Kanade, EMA smoothing)                       ║
+║   OpticalFlowTracker (Lucas-Kanade, EMA smoothing)                        ║
 ║         ↓                                                                 ║
 ║   DepthEstimator  (bbox size + altitude fusion)                           ║
 ║         ↓                                                                 ║
-║   StateMachine (13 phases, 20 Hz tick loop)                              ║
+║   StateMachine (13 phases, 20 Hz tick loop)                               ║
 ║         ↓                                                                 ║
-║   FlightController  ──→  MAVLinkInterface  ──→  Pixhawk 2.4.8            ║
+║   FlightController  ──→  MAVLinkInterface  ──→  Pixhawk 2.4.8             ║
 ║         ↓                        ↑                                        ║
 ║   PollinationManager          Telemetry stream (ATTITUDE, GPS,            ║
-║   (MAVLink AUX OUT 1          OPTICAL_FLOW_RAD, EKF_STATUS, …)          ║
+║   (MAVLink AUX OUT 1          OPTICAL_FLOW_RAD, EKF_STATUS, …)            ║
 ║    → pollen-dispenser servo)                                              ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 ```
