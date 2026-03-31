@@ -24,6 +24,8 @@ const FPS = 30
 const POS_HIST_LEN = 90
 const ALT_HIST_LEN = 150
 const MAX_EVENTS = 100
+// Proximity-based detection radius (meters lateral) — simulates camera FOV at patrol altitude
+const PROXIMITY_DETECT_RADIUS = 4.5
 
 export class AutonomousNavigator {
   private flowers: LiveFlower[]
@@ -51,6 +53,7 @@ export class AutonomousNavigator {
   private time = 0
   private frameIdx = 0
   private lastInference: InferenceResult | null = null
+  done = false
 
   constructor(seed?: number) {
     this.flowers = generateRandomGarden(seed)
@@ -80,18 +83,19 @@ export class AutonomousNavigator {
 
   private stepPhase(dt: number) {
     switch (this.phase) {
-      case 'idle':    this.doIdle(); break
-      case 'arming':  this.doArming(dt); break
-      case 'takeoff': this.doTakeoff(dt); break
-      case 'scanning':    this.doScanning(dt); break
-      case 'planning':    this.doPlanning(dt); break
-      case 'approach':    this.doApproach(dt); break
-      case 'descent':     this.doDescent(dt); break
-      case 'hover_align': this.doHoverAlign(dt); break
-      case 'pollinating': this.doPollinating(dt); break
-      case 'ascent':      this.doAscent(dt); break
-      case 'resume':      this.doResume(dt); break
-      case 'landing':     this.doLanding(dt); break
+      case 'idle':           this.doIdle(); break
+      case 'arming':         this.doArming(dt); break
+      case 'takeoff':        this.doTakeoff(dt); break
+      case 'scanning':       this.doScanning(dt); break
+      case 'planning':       this.doPlanning(dt); break
+      case 'approach':       this.doApproach(dt); break
+      case 'descent':        this.doDescent(dt); break
+      case 'hover_align':    this.doHoverAlign(dt); break
+      case 'pollinating':    this.doPollinating(dt); break
+      case 'ascent':         this.doAscent(dt); break
+      case 'resume':         this.doResume(dt); break
+      case 'mission_complete': this.doMissionComplete(dt); break
+      case 'landing':        this.doLanding(dt); break
     }
   }
 
@@ -114,6 +118,8 @@ export class AutonomousNavigator {
   private doScanning(dt: number) {
     const wp = this.lawnmower[this.scanWpIdx]
     this.moveToward(wp.x, wp.y, this.z, SCAN_SPEED, dt)
+    // Proximity-based detection: camera FOV at patrol altitude
+    this.doProximityDetection()
     if (Math.hypot(this.x - wp.x, this.y - wp.y) < WAYPOINT_RADIUS) {
       this.scanWpIdx++
       if (this.scanWpIdx >= this.lawnmower.length) {
@@ -126,6 +132,15 @@ export class AutonomousNavigator {
   private doPlanning(dt: number) {
     this.planTimer += dt
     if (this.planTimer >= PLAN_DURATION_S) {
+      // Fallback: if CV produced no detections (server offline etc.),
+      // add all unvisited flowers so the mission still runs
+      if (this.discoveredIds.length === 0 && this.flowers.length > 0) {
+        for (const f of this.flowers) {
+          this.discoveredIds.push(f.id)
+          this.updateFlowerState(f.id, 'discovered')
+        }
+        this.emit('No CV detections — targeting all flowers', 'warn')
+      }
       this.tspRoute = computeTSPRoute(this.flowers, this.discoveredIds)
       this.tspIdx = 0
       this.planningComplete = true
@@ -141,6 +156,8 @@ export class AutonomousNavigator {
     const target = this.currentTarget()
     if (!target) { this.transition('mission_complete'); return }
     this.moveToward(target.x, target.y, PATROL_ALT, APPROACH_SPEED, dt)
+    // Keep discovering any nearby flowers as we fly the approach path
+    this.doProximityDetection()
     if (Math.hypot(this.x - target.x, this.y - target.y) < WAYPOINT_RADIUS) {
       this.transition('descent')
     }
@@ -197,8 +214,37 @@ export class AutonomousNavigator {
     }
   }
 
+  private doMissionComplete(dt: number) {
+    // Return to home, then land
+    this.moveToward(HOME.x, HOME.y, PATROL_ALT, APPROACH_SPEED, dt)
+    if (Math.hypot(this.x - HOME.x, this.y - HOME.y) < WAYPOINT_RADIUS) {
+      this.transition('landing')
+    }
+  }
+
   private doLanding(dt: number) {
     this.z = Math.max(0, this.z - CLIMB_SPEED * 0.6 * dt)
+    if (this.z <= 0.01) this.done = true
+  }
+
+  // ── Proximity-based flower detection ────────────────────────────────────
+  // Simulates camera FOV at patrol altitude — works even without WS server.
+  // Confidence = 0.9 at zero lateral offset, falls to 0.3 at edge of radius.
+  private doProximityDetection() {
+    for (const f of this.flowers) {
+      if (f.state === 'undiscovered') {
+        const dist = Math.hypot(this.x - f.x, this.y - f.y)
+        if (dist < PROXIMITY_DETECT_RADIUS) {
+          const conf = Math.max(0.3, 0.9 - (dist / PROXIMITY_DETECT_RADIUS) * 0.6)
+          f.confidence = conf
+          if (!this.discoveredIds.includes(f.id)) {
+            this.discoveredIds.push(f.id)
+            this.updateFlowerState(f.id, 'discovered')
+            this.emit(`Flower detected — ${f.id} (${dist.toFixed(1)}m lateral)`, 'info')
+          }
+        }
+      }
+    }
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────
@@ -223,6 +269,7 @@ export class AutonomousNavigator {
   }
 
   private processInference(inf: InferenceResult) {
+    const targetPhases: LivePhase[] = ['approach', 'descent', 'hover_align']
     for (const det of inf.detections) {
       if (!this.discoveredIds.includes(det.id)) {
         this.discoveredIds.push(det.id)
@@ -232,7 +279,7 @@ export class AutonomousNavigator {
       const f = this.flowers.find(fl => fl.id === det.id)
       if (f && f.state !== 'pollinated') {
         f.confidence = det.confidence
-        if (this.phase === 'approach' && det.id === this.tspRoute[this.tspIdx]) {
+        if (targetPhases.includes(this.phase) && det.id === this.tspRoute[this.tspIdx]) {
           if (det.confidence >= 0.75) this.updateFlowerState(det.id, 'locked')
           else if (det.confidence >= 0.40) this.updateFlowerState(det.id, 'candidate')
           else this.updateFlowerState(det.id, 'scanned')

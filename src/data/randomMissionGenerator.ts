@@ -58,18 +58,19 @@ export function generateRandomGarden(seed = Date.now()): LiveFlower[] {
   return flowers
 }
 
-// Four lawnmower passes covering the 20×20 garden at x = 4, 8.5, 13, 17.5
-// Alternating N→S and S→N to avoid long repositioning flights
+// Four lawnmower passes covering the 20×20 garden at x = 3, 8, 13, 18
+// with 4.5m proximity detection radius → full coverage of the 2.5–17.5 flower zone
+// Alternating S→N and N→S to avoid long repositioning flights
 export function generateLawnmowerPath(): Array<{ x: number; y: number }> {
   return [
-    { x: 4.0,  y: 2.0  },
-    { x: 4.0,  y: 18.0 },
-    { x: 8.5,  y: 18.0 },
-    { x: 8.5,  y: 2.0  },
+    { x: 3.0,  y: 2.0  },
+    { x: 3.0,  y: 18.0 },
+    { x: 8.0,  y: 18.0 },
+    { x: 8.0,  y: 2.0  },
     { x: 13.0, y: 2.0  },
     { x: 13.0, y: 18.0 },
-    { x: 17.5, y: 18.0 },
-    { x: 17.5, y: 2.0  },
+    { x: 18.0, y: 18.0 },
+    { x: 18.0, y: 2.0  },
   ]
 }
 

@@ -59,6 +59,12 @@ export function useLiveInferenceEngine(): LiveInferenceState {
     if (ws) ws.send(lf.drone, lf.flowers, lf.phase)
 
     setFrame(lf)
+
+    // Stop the RAF loop once the navigator has fully landed
+    if (nav.done) {
+      rafRef.current = null
+      return
+    }
     rafRef.current = requestAnimationFrame(tick)
   }, [])
 
