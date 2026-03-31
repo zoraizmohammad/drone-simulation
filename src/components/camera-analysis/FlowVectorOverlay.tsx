@@ -53,8 +53,10 @@ export function FlowVectorOverlay({ vx, vy, quality, stability, time }: Props) {
   // Subtle animated offset based on time (deterministic shimmer)
   const shimmer = Math.sin(time * 6) * 0.5
 
+  const animClass = stability > 0.7 ? 'of-vector-stable' : 'of-vector-unstable'
+
   return (
-    <g opacity={alpha} style={{ mixBlendMode: 'screen' }}>
+    <g opacity={alpha} style={{ mixBlendMode: 'screen' }} className={animClass}>
       {/* Flow field grid — faint background lines */}
       {[-2, -1, 0, 1, 2].map(row =>
         [-3, -2, -1, 0, 1, 2, 3].map(col => {

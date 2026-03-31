@@ -55,3 +55,55 @@ html, body, #app {
 .pulse-fast {
   animation: blink 0.5s ease-in-out infinite;
 }
+
+/* ── Optical flow visual effects ───────────────────────────────────────── */
+
+@keyframes of-heatmap-pulse {
+  0%   { opacity: 0.85; }
+  50%  { opacity: 1.0; }
+  100% { opacity: 0.85; }
+}
+
+@keyframes of-vector-shimmer {
+  0%   { opacity: 0.6; }
+  50%  { opacity: 1.0; }
+  100% { opacity: 0.6; }
+}
+
+@keyframes of-flicker-unstable {
+  0%, 100% { opacity: 1.0; }
+  15%       { opacity: 0.55; }
+  30%       { opacity: 0.9; }
+  55%       { opacity: 0.4; }
+  70%       { opacity: 0.8; }
+}
+
+@keyframes of-stabilize-flash {
+  0%   { opacity: 0; }
+  20%  { opacity: 0.7; }
+  100% { opacity: 0; }
+}
+
+/* Applied to heatmap blobs when sensor is active */
+.of-heatmap-pulse {
+  animation: of-heatmap-pulse 1.8s ease-in-out infinite;
+}
+
+/* Flow vector arrows */
+.of-vector-stable {
+  animation: of-vector-shimmer 2.4s ease-in-out infinite;
+}
+
+.of-vector-unstable {
+  animation: of-vector-shimmer 0.6s ease-in-out infinite;
+}
+
+/* Scene overlay when sensor is degraded */
+.of-flicker {
+  animation: of-flicker-unstable 0.35s steps(1) infinite;
+}
+
+/* Stabilization ring flash on hover */
+.of-stabilize {
+  animation: of-stabilize-flash 1.2s ease-out forwards;
+}
