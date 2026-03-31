@@ -1,6 +1,6 @@
 import type {
   DroneState, SensorState, LiveFlower, LiveFrame,
-  LivePhase, InferenceResult, EventLogEntry,
+  LivePhase, InferenceResult, EventLogEntry, TerminalLogFn,
 } from '../models/types'
 import {
   generateRandomGarden, generateLawnmowerPath, computeTSPRoute,
@@ -53,7 +53,15 @@ export class AutonomousNavigator {
   private time = 0
   private frameIdx = 0
   private lastInference: InferenceResult | null = null
+  private onTermLog: TerminalLogFn | null = null
   done = false
+
+  /** Wire up the terminal logger — called once by liveInferenceEngine after construction */
+  setTerminalCallback(fn: TerminalLogFn) { this.onTermLog = fn }
+
+  private tlog(type: Parameters<TerminalLogFn>[0], text: string) {
+    this.onTermLog?.(type, text)
+  }
 
   constructor(seed?: number) {
     this.flowers = generateRandomGarden(seed)
@@ -140,10 +148,12 @@ export class AutonomousNavigator {
           this.updateFlowerState(f.id, 'discovered')
         }
         this.emit('No CV detections — targeting all flowers', 'warn')
+        this.tlog('nav', `FALLBACK  no detections — adding all ${this.flowers.length} flowers to route`)
       }
       this.tspRoute = computeTSPRoute(this.flowers, this.discoveredIds)
       this.tspIdx = 0
       this.planningComplete = true
+      this.tlog('tsp', `PLAN-FINAL  ${this.tspRoute.length} targets  route=[${this.tspRoute.join(' → ')}]`)
       if (this.tspRoute.length === 0) {
         this.transition('mission_complete')
       } else {
@@ -195,6 +205,7 @@ export class AutonomousNavigator {
         this.pollinatedIds.push(target.id)
         this.updateFlowerState(target.id, 'pollinated')
         this.emit(`POLLINATION COMPLETE — ${target.id}`, 'success')
+        this.tlog('phase', `POLLINATED  ${target.id}  total=${this.pollinatedIds.length}/${this.flowers.length}  T+${this.time.toFixed(2)}s`)
       }
       this.transition('ascent')
     }
@@ -242,6 +253,7 @@ export class AutonomousNavigator {
             this.discoveredIds.push(f.id)
             this.updateFlowerState(f.id, 'discovered')
             this.emit(`Flower detected — ${f.id} (${dist.toFixed(1)}m lateral)`, 'info')
+            this.tlog('nav', `PROXIMITY  ${f.id}  dist=${dist.toFixed(2)}m  conf=${(conf * 100).toFixed(0)}%  pos=(${this.x.toFixed(1)},${this.y.toFixed(1)})`)
             newDiscovery = true
           }
         }
@@ -250,6 +262,7 @@ export class AutonomousNavigator {
     // Recompute live TSP route whenever a new flower is found
     if (newDiscovery && this.discoveredIds.length > 0) {
       this.tspRoute = computeTSPRoute(this.flowers, this.discoveredIds)
+      this.tlog('tsp', `TSP-UPDATE  ${this.discoveredIds.length} flowers  route=[${this.tspRoute.join(' → ')}]`)
     }
   }
 
@@ -282,6 +295,7 @@ export class AutonomousNavigator {
         this.discoveredIds.push(det.id)
         this.updateFlowerState(det.id, 'discovered')
         this.emit(`Flower discovered — ${det.id} (conf ${(det.confidence * 100).toFixed(0)}%)`, 'info')
+        this.tlog('detect', `CV-DISCOVER  ${det.id}  conf=${(det.confidence * 100).toFixed(1)}%  cls=${det.cls}`)
         newDiscovery = true
       }
       const f = this.flowers.find(fl => fl.id === det.id)
@@ -309,6 +323,7 @@ export class AutonomousNavigator {
     }
     if (newDiscovery && this.discoveredIds.length > 0) {
       this.tspRoute = computeTSPRoute(this.flowers, this.discoveredIds)
+      this.tlog('tsp', `TSP-UPDATE (cv-merge)  ${this.discoveredIds.length} flowers  route=[${this.tspRoute.join(' → ')}]`)
     }
   }
 
@@ -319,6 +334,7 @@ export class AutonomousNavigator {
 
   private transition(next: LivePhase) {
     if (this.phase !== next) {
+      this.tlog('phase', `PHASE  ${this.phase.padEnd(16)} → ${next}  T+${this.time.toFixed(2)}s`)
       this.phase = next
       this.emit(phaseLabel(next), 'event')
     }

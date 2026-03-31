@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
-import type { LiveFrame, InferenceResult } from '../models/types'
+import type { LiveFrame, InferenceResult, TerminalEntry, TerminalEntryType } from '../models/types'
 import { AutonomousNavigator } from './autonomousNavigator'
 import { WsClient, type WsStatus } from './wsClient'
+
+const MAX_TERMINAL = 500
 
 export interface LiveInferenceState {
   currentFrame: LiveFrame | null
@@ -9,6 +11,7 @@ export interface LiveInferenceState {
   inferenceMode: 'onnx' | 'mock' | null
   inferenceMs: number
   isRunning: boolean
+  terminalEntries: TerminalEntry[]
   restart: () => void
   stop: () => void
 }
@@ -33,6 +36,17 @@ export function useLiveInferenceEngine(): LiveInferenceState {
   const [inferenceMode, setInfMode] = useState<'onnx' | 'mock' | null>(null)
   const [inferenceMs, setInfMs]     = useState(0)
   const [isRunning, setIsRunning]   = useState(false)
+
+  // Terminal log: accumulate in a ref, sync to state every 250 ms
+  const termBufRef   = useRef<TerminalEntry[]>([])
+  const termIdRef    = useRef(0)
+  const termSyncRef  = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [terminalEntries, setTermEntries] = useState<TerminalEntry[]>([])
+
+  const pushTerminal = useCallback((type: TerminalEntryType, text: string) => {
+    const entry: TerminalEntry = { id: ++termIdRef.current, ts: performance.now(), type, text }
+    termBufRef.current = [...termBufRef.current, entry].slice(-MAX_TERMINAL)
+  }, [])
 
   const onWsMessage = useCallback((result: InferenceResult) => {
     latestInf.current = result
@@ -69,30 +83,49 @@ export function useLiveInferenceEngine(): LiveInferenceState {
   }, [])
 
   const start = useCallback(async () => {
+    // Reset terminal
+    termBufRef.current = []
+    termIdRef.current  = 0
+    setTermEntries([])
+    pushTerminal('sys', 'SESSION START — live inference engine initialising…')
+
     await spawnInferenceServer()
     // Small delay to give server time to boot
     await new Promise(r => setTimeout(r, 800))
 
-    navRef.current = new AutonomousNavigator(Date.now())
+    const nav = new AutonomousNavigator(Date.now())
+    nav.setTerminalCallback(pushTerminal)
+    navRef.current = nav
 
-    const ws = new WsClient(onWsStatus, onWsMessage)
+    const ws = new WsClient(onWsStatus, onWsMessage, pushTerminal)
     wsRef.current = ws
     ws.connect()
+
+    // Sync terminal buffer to state every 250 ms
+    if (termSyncRef.current) clearInterval(termSyncRef.current)
+    termSyncRef.current = setInterval(() => {
+      setTermEntries(prev =>
+        termBufRef.current.length !== prev.length ? [...termBufRef.current] : prev
+      )
+    }, 250)
 
     lastTimeRef.current = null
     latestInf.current   = null
     setIsRunning(true)
     rafRef.current = requestAnimationFrame(tick)
-  }, [tick, onWsStatus, onWsMessage])
+  }, [tick, onWsStatus, onWsMessage, pushTerminal])
 
   const stop = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    if (termSyncRef.current) { clearInterval(termSyncRef.current); termSyncRef.current = null }
     wsRef.current?.disconnect()
     wsRef.current  = null
     navRef.current = null
     setIsRunning(false)
     setFrame(null)
     setWsStatus('disconnected')
+    setTermEntries([])
+    termBufRef.current = []
   }, [])
 
   const restart = useCallback(() => {
@@ -109,5 +142,5 @@ export function useLiveInferenceEngine(): LiveInferenceState {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { currentFrame: frame, wsStatus, inferenceMode, inferenceMs, isRunning, restart, stop }
+  return { currentFrame: frame, wsStatus, inferenceMode, inferenceMs, isRunning, terminalEntries, restart, stop }
 }

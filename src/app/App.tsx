@@ -1,4 +1,5 @@
 import { useState } from 'preact/hooks'
+import { TerminalPanel } from '../components/TerminalPanel/TerminalPanel'
 import type { SimMode, LiveFrame, ReplayFrame, FlowerCluster, MissionPhase } from '../models/types'
 import { TopDownView } from '../components/TopDownView/TopDownView'
 import { SideView } from '../components/SideView/SideView'
@@ -103,6 +104,7 @@ function LiveApp({ onExit }: { onExit: () => void }) {
   const lf   = live.currentFrame
   const adapted = lf ? liveToReplay(lf) : null
   const phase   = lf?.phase ?? 'idle'
+  const [terminalOpen, setTerminalOpen] = useState(false)
 
   return (
     <AppShell
@@ -117,6 +119,8 @@ function LiveApp({ onExit }: { onExit: () => void }) {
           inferenceMs={live.inferenceMs}
           onRestart={live.restart}
           onExit={onExit}
+          onToggleTerminal={() => setTerminalOpen(o => !o)}
+          terminalOpen={terminalOpen}
         />
       }
     >
@@ -130,6 +134,13 @@ function LiveApp({ onExit }: { onExit: () => void }) {
       <BottomBar>
         <LiveBottomBar lf={lf} />
       </BottomBar>
+
+      {terminalOpen && (
+        <TerminalPanel
+          entries={live.terminalEntries}
+          onClose={() => setTerminalOpen(false)}
+        />
+      )}
     </AppShell>
   )
 }

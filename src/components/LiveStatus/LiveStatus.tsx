@@ -6,6 +6,8 @@ interface Props {
   inferenceMs: number
   onRestart: () => void
   onExit: () => void
+  onToggleTerminal: () => void
+  terminalOpen: boolean
 }
 
 function statusColor(s: WsStatus): string {
@@ -26,7 +28,7 @@ function statusLabel(s: WsStatus): string {
   }
 }
 
-export function LiveStatus({ wsStatus, inferenceMode, inferenceMs, onRestart, onExit }: Props) {
+export function LiveStatus({ wsStatus, inferenceMode, inferenceMs, onRestart, onExit, onToggleTerminal, terminalOpen }: Props) {
   const sc = statusColor(wsStatus)
   const connected = wsStatus === 'connected'
 
@@ -62,6 +64,19 @@ export function LiveStatus({ wsStatus, inferenceMode, inferenceMs, onRestart, on
           {inferenceMode === 'onnx' ? 'ONNX' : 'MOCK'} · {inferenceMs.toFixed(0)}ms
         </div>
       )}
+
+      {/* Terminal toggle */}
+      <button onClick={onToggleTerminal} style={{
+        padding: '3px 9px', borderRadius: 4,
+        background: terminalOpen ? '#0e2038' : 'transparent',
+        border: `1px solid ${terminalOpen ? '#38bdf8' : '#334155'}`,
+        color: terminalOpen ? '#38bdf8' : '#475569',
+        fontSize: 10, cursor: 'pointer',
+        fontFamily: 'monospace', letterSpacing: '0.06em',
+        transition: 'all 0.15s',
+      }}>
+        &gt;_ TERMINAL
+      </button>
 
       {/* Restart */}
       <button onClick={onRestart} style={{

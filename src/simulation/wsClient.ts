@@ -1,4 +1,4 @@
-import type { DroneState, InferenceResult, LiveFlower, LivePhase } from '../models/types'
+import type { DroneState, InferenceResult, LiveFlower, LivePhase, TerminalLogFn } from '../models/types'
 
 export type WsStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
 
@@ -20,15 +20,21 @@ export class WsClient {
   private status: WsStatus = 'disconnected'
   private onStatus: StatusCallback
   private onMessage: MessageCallback
+  private onLog: TerminalLogFn | null
   private backoff = 500
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private inferenceTimer: ReturnType<typeof setInterval> | null = null
   private pendingMessage: WsMessage | null = null
   private closed = false
 
-  constructor(onStatus: StatusCallback, onMessage: MessageCallback) {
+  constructor(onStatus: StatusCallback, onMessage: MessageCallback, onLog?: TerminalLogFn) {
     this.onStatus = onStatus
     this.onMessage = onMessage
+    this.onLog = onLog ?? null
+  }
+
+  private log(type: Parameters<TerminalLogFn>[0], text: string) {
+    this.onLog?.(type, text)
   }
 
   connect() {
@@ -43,22 +49,36 @@ export class WsClient {
     this.ws.onopen = () => {
       this.backoff = 500
       this.setStatus('connected')
+      this.log('sys', `WS connected → ${WS_URL}`)
       this.startInferenceLoop()
     }
 
     this.ws.onmessage = (ev) => {
       try {
         const result: InferenceResult = JSON.parse(ev.data)
+        // Log receive summary
+        const dets = result.detections
+        if (dets.length > 0) {
+          const detSummary = dets.map(d => `${d.id}@${(d.confidence * 100).toFixed(0)}%`).join(' ')
+          this.log('ws-in', `RX ← ${result.inferenceMode.toUpperCase()} ${result.inferenceMs.toFixed(0)}ms | ${dets.length} det(s): ${detSummary}`)
+          for (const d of dets) {
+            this.log('detect', `  DETECT ${d.cls.padEnd(16)} ${d.id}  conf=${(d.confidence * 100).toFixed(1)}%  bbox=[${d.bbox.map(v => v.toFixed(0)).join(',')}]`)
+          }
+        } else {
+          this.log('ws-in', `RX ← ${result.inferenceMode.toUpperCase()} ${result.inferenceMs.toFixed(0)}ms | 0 detections`)
+        }
         this.onMessage(result)
       } catch { /* malformed */ }
     }
 
     this.ws.onerror = () => {
       this.setStatus('error')
+      this.log('error', 'WS error — connection failed')
     }
 
     this.ws.onclose = () => {
       this.stopInferenceLoop()
+      this.log('sys', 'WS connection closed')
       if (!this.closed) this.scheduleReconnect()
     }
   }
@@ -75,6 +95,7 @@ export class WsClient {
     this.closed = true
     this.stopInferenceLoop()
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.log('sys', 'WS disconnected by client')
     this.ws?.close()
     this.ws = null
     this.setStatus('disconnected')
@@ -89,6 +110,7 @@ export class WsClient {
 
   private scheduleReconnect() {
     this.setStatus('connecting')
+    this.log('sys', `Reconnecting in ${(this.backoff / 1000).toFixed(1)}s…`)
     this.reconnectTimer = setTimeout(() => {
       this.backoff = Math.min(this.backoff * 1.5, MAX_BACKOFF_MS)
       this.connect()
@@ -99,7 +121,11 @@ export class WsClient {
     this.inferenceTimer = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN && this.pendingMessage) {
         try {
-          this.ws.send(JSON.stringify(this.pendingMessage))
+          const msg = this.pendingMessage
+          this.ws.send(JSON.stringify(msg))
+          const { drone, flowers, phase } = msg
+          this.log('ws-out',
+            `TX → phase=${phase}  pos=(${drone.x.toFixed(1)},${drone.y.toFixed(1)},${drone.z.toFixed(1)})  flowers=${flowers.length}`)
         } catch { /* ws closed */ }
       }
     }, INFERENCE_INTERVAL_MS)
