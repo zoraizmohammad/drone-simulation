@@ -128,6 +128,64 @@ All gradient/filter IDs are prefixed with `ca-` to avoid collisions with the oth
 All 13 `MissionPhase` values are handled in `MissionPhaseOverlay`:
 `idle`, `arming`, `takeoff`, `transit`, `resume_transit`, `scanning`, `candidate_detected`, `target_lock`, `descent`, `hover_align`, `pollinating`, `ascent`, `mission_complete`
 
+## Optical Flow Sensor Model
+
+### Architecture Decision: Distance-Driven Simulation
+Sensor values are no longer derived from mission time. Every frame computes `distanceInches = drone.z * 39.37`, then looks up the corresponding sensor state from the optical flow dataset. This makes the simulation physically grounded: sensors respond to altitude, not elapsed time.
+
+### Data Sources
+- **Real data**: `raw_opticalflow_data.csv` in the project root — 24 rows from 0 to 276 inches (0–7.01m) at 12-inch intervals. Fields: `distance_in`, `sensor_distance` (mm), `strength`, `precision`, `status`, `flow_vel_x`, `flow_vel_y`, `flow_quality`, `flow_state`.
+- **Synthetic data**: midpoint interpolated rows (6-inch step resolution) + 3 extrapolated rows beyond 276 in for patrol altitude coverage.
+- **Merge strategy**: real rows always override synthetic rows at the same distance. Final dataset sorted by `distance_in`.
+
+### Interpolation Method (`sensorInterpolation.ts`)
+- Binary search for bracketing pair around target distance
+- Smooth-step easing: `t = t² × (3 − 2t)` for gentle transitions
+- Clamped to [0, 315] inches — no out-of-range extrapolation
+
+### Physics Assumptions (`opticalFlowModel.ts`)
+| Formula | Rationale |
+|---|---|
+| `vx = flow_vel_x × (distance_in / 1000)` | Optical flow apparent motion scales with altitude |
+| `stability = flow_quality / 150` | 150 is peak quality from real sensor data at ~3m |
+| `noise = (1 − stability) × 0.15` | Noise inversely proportional to quality |
+| `effectiveQuality = quality × strength/255 × 1/precision` | Weighted by signal integrity |
+
+### Sensor Degradation Thresholds
+- **distance > 197 in (5m)**: progressive stability/quality reduction (up to −60%/−70% at 315 in)
+- **strength < 60**: amplified noise
+- **flow_quality < 50**: deterministic drift injected (`pseudoRand` seeded by frame index)
+- **distance < 118 in (3m)**: sinusoidal hover instability oscillation added to vx/vy
+
+### CV Coupling
+Detection confidence is modulated by sensor quality each frame:
+- `stabilityFactor = 0.6 + 0.4 × stability` (never below 60%)
+- `strengthFactor = 0.6 + 0.4 × (strength/255)` (never below 60%)
+- `confidence *= stabilityFactor × strengthFactor`
+- Blur penalty if |velocity| > 1.5 m/s
+- Heavy reduction (×0.6) if flow_quality < 50
+- 15% boost if stable hover (stability > 0.7 and altitude < 3m)
+
+### Visualization System (Camera Analysis Panel)
+New components added to `src/components/camera-analysis/`:
+- **`FlowVectorOverlay.tsx`**: Flow field grid lines + primary velocity arrow + arrowhead. Colour: cyan (stable) / amber (moderate) / red (degraded). CSS class `of-vector-stable` or `of-vector-unstable` applies shimmer/flicker animation.
+- **`OpticalFlowHud.tsx`**: Top-right translucent panel. Shows: DIST (in), SENSOR (mm), FLOW X/Y (m/s), QUALITY/255, STRENGTH, PRECISION, STABILITY %. Includes a stability bar gauge.
+- **`DetectionHeatmap.tsx`** (updated): `qualityIntensity` prop scales blob opacity by sensor quality. CSS class `of-heatmap-pulse` for slow breathing animation.
+- **`CameraAnalysisScene.tsx`** (updated):
+  - Jitter: `jx/jy` offsets applied to flower group when quality < 50
+  - Motion blur: SVG `feGaussianBlur` filter on flowers when |velocity| > 1.0 m/s
+  - Stable hover: cyan glow ring at scene center when stability > 0.7 and altitude < 3m
+  - Unstable tint: red-orange radial vignette when stability < 0.4, animated with `of-vector-unstable`
+
+### New CSS Animations (`globals.css`)
+| Class | Effect |
+|---|---|
+| `of-heatmap-pulse` | Slow opacity pulse on detection heat blobs (1.8s) |
+| `of-vector-stable` | Gentle shimmer on flow arrows when stable (2.4s) |
+| `of-vector-unstable` | Fast shimmer on flow arrows when degraded (0.6s) |
+| `of-flicker` | Irregular opacity flicker on scene when very unstable |
+| `of-stabilize` | One-shot flash on stabilization |
+
 ## Git Milestone Log
 1. `Initialize Preact TypeScript simulation scaffold` — all phases scaffolded in first commit
 2. `Add .gitignore to exclude node_modules and dist`
@@ -135,6 +193,16 @@ All 13 `MissionPhase` values are handled in `MissionPhaseOverlay`:
 4. `Fix camera analysis panel rendering and layout stability` — container layout fix + debug ZoomPanel
 5. `Rebuild camera analysis panel — modular architecture, full phase coverage` — full production system
 6. `Document upgraded camera analysis system in CLAUDE.md` — architecture notes
+7. `Add CSV ingestion for raw optical flow data`
+8. `Merge real sensor data with extrapolated distance model`
+9. `Add distance-based sensor interpolation engine`
+10. `Add physics-based optical flow + ToF sensor model`
+11. `Convert simulation to distance-driven sensor model`
+12. `Couple optical flow sensor state with CV detection model`
+13. `Add optical flow visualization (vectors, heatmap, sensor HUD)`
+14. `Add sensor degradation and failure modeling`
+15. `Add advanced optical flow visual effects and stability cues`
+16. `Document full optical flow simulation system and finalize integration`
 
 ## Stack
 - Preact 10 + TypeScript 5
