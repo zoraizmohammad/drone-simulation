@@ -11,7 +11,7 @@ import { OpticalFlowHud } from './OpticalFlowHud'
 const VW = 800
 const VH = 500
 
-export function CameraAnalysisScene({ af }: { af: AnalysisFrame }) {
+export function CameraAnalysisScene({ af, livePng }: { af: AnalysisFrame; livePng: string | null }) {
   const { phase, targetId, confidence, flowersInView, targetLocked,
           pollinationActive, pollinatedIds, altitude, time,
           confidenceHistory, flowers, frustum,
@@ -62,6 +62,16 @@ export function CameraAnalysisScene({ af }: { af: AnalysisFrame }) {
       {/* Background */}
       <rect x={0} y={0} width={VW} height={VH} fill="#020617" />
 
+      {/* Live PIL frame (Mode 2) — rendered as background image */}
+      {livePng && (
+        <image
+          href={`data:image/jpeg;base64,${livePng}`}
+          x={0} y={0} width={VW} height={VH}
+          preserveAspectRatio="xMidYMid slice"
+          opacity={0.88}
+        />
+      )}
+
       {/* Grid lines (very subtle) */}
       {Array.from({ length: 8 }, (_, i) => (
         <line key={`gx${i}`}
@@ -74,16 +84,18 @@ export function CameraAnalysisScene({ af }: { af: AnalysisFrame }) {
           stroke="#0f172a" strokeWidth={0.5} />
       ))}
 
-      {/* Flowers — jitter when low quality, motion blur when high velocity */}
-      <g
-        transform={`translate(${jx}, ${jy})`}
-        filter={Math.sqrt(ofVx ** 2 + ofVy ** 2) > 1.0 ? 'url(#ca-motion-blur)' : undefined}
-        className={ofStability < 0.35 ? 'of-flicker' : undefined}
-      >
-        {flowers.map(f => (
-          <FlowerClusterRenderer key={f.id} flower={f} />
-        ))}
-      </g>
+      {/* Flowers — shown in Mode 1 only; Mode 2 uses live PIL frame as background */}
+      {!livePng && (
+        <g
+          transform={`translate(${jx}, ${jy})`}
+          filter={Math.sqrt(ofVx ** 2 + ofVy ** 2) > 1.0 ? 'url(#ca-motion-blur)' : undefined}
+          className={ofStability < 0.35 ? 'of-flicker' : undefined}
+        >
+          {flowers.map(f => (
+            <FlowerClusterRenderer key={f.id} flower={f} />
+          ))}
+        </g>
+      )}
 
       {/* Stable hover glow — cyan ring when well-stabilised at low altitude */}
       {ofStability > 0.7 && distanceInches < 120 && (
@@ -136,24 +148,26 @@ export function CameraAnalysisScene({ af }: { af: AnalysisFrame }) {
         totalFlowers={flowers.length}
       />
 
-      {/* Optical flow vector overlay */}
-      <FlowVectorOverlay
-        vx={ofVx} vy={ofVy}
-        quality={ofQuality}
-        stability={ofStability}
-        time={time}
-      />
-
-      {/* Optical flow sensor data HUD (top-right) */}
-      <OpticalFlowHud
-        vx={ofVx} vy={ofVy}
-        quality={ofQuality}
-        strength={ofStrength}
-        precision={ofPrecision}
-        stability={ofStability}
-        sensorDistanceMm={sensorDistanceMm}
-        distanceInches={distanceInches}
-      />
+      {/* Optical flow overlays — Mode 1 only */}
+      {!livePng && (
+        <>
+          <FlowVectorOverlay
+            vx={ofVx} vy={ofVy}
+            quality={ofQuality}
+            stability={ofStability}
+            time={time}
+          />
+          <OpticalFlowHud
+            vx={ofVx} vy={ofVy}
+            quality={ofQuality}
+            strength={ofStrength}
+            precision={ofPrecision}
+            stability={ofStability}
+            sensorDistanceMm={sensorDistanceMm}
+            distanceInches={distanceInches}
+          />
+        </>
+      )}
 
       {/* HUD strip */}
       <AnalysisHud

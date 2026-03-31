@@ -117,14 +117,14 @@ function computeAnalysisFrame(frame: ReplayFrame): AnalysisFrame {
   }
 }
 
-interface Props { frame: ReplayFrame }
+interface Props { frame: ReplayFrame; livePng?: string | null }
 
-export function CameraAnalysisPanel({ frame }: Props) {
+export function CameraAnalysisPanel({ frame, livePng }: Props) {
   const af = computeAnalysisFrame(frame)
 
   return (
     <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflow: 'hidden', background: '#020617' }}>
-      <CameraAnalysisScene af={af} />
+      <CameraAnalysisScene af={af} livePng={livePng ?? null} />
     </div>
   )
 }
