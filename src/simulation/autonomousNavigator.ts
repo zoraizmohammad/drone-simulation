@@ -231,6 +231,7 @@ export class AutonomousNavigator {
   // Simulates camera FOV at patrol altitude — works even without WS server.
   // Confidence = 0.9 at zero lateral offset, falls to 0.3 at edge of radius.
   private doProximityDetection() {
+    let newDiscovery = false
     for (const f of this.flowers) {
       if (f.state === 'undiscovered') {
         const dist = Math.hypot(this.x - f.x, this.y - f.y)
@@ -241,9 +242,14 @@ export class AutonomousNavigator {
             this.discoveredIds.push(f.id)
             this.updateFlowerState(f.id, 'discovered')
             this.emit(`Flower detected — ${f.id} (${dist.toFixed(1)}m lateral)`, 'info')
+            newDiscovery = true
           }
         }
       }
+    }
+    // Recompute live TSP route whenever a new flower is found
+    if (newDiscovery && this.discoveredIds.length > 0) {
+      this.tspRoute = computeTSPRoute(this.flowers, this.discoveredIds)
     }
   }
 
@@ -270,11 +276,13 @@ export class AutonomousNavigator {
 
   private processInference(inf: InferenceResult) {
     const targetPhases: LivePhase[] = ['approach', 'descent', 'hover_align']
+    let newDiscovery = false
     for (const det of inf.detections) {
       if (!this.discoveredIds.includes(det.id)) {
         this.discoveredIds.push(det.id)
         this.updateFlowerState(det.id, 'discovered')
         this.emit(`Flower discovered — ${det.id} (conf ${(det.confidence * 100).toFixed(0)}%)`, 'info')
+        newDiscovery = true
       }
       const f = this.flowers.find(fl => fl.id === det.id)
       if (f && f.state !== 'pollinated') {
@@ -285,6 +293,22 @@ export class AutonomousNavigator {
           else this.updateFlowerState(det.id, 'scanned')
         }
       }
+    }
+    // Merge server TSP suggestion — use it to order undiscovered flowers not
+    // yet in our route (the server sees the whole garden via the flowers payload)
+    if (inf.tspSuggestion?.length > 0 && !this.planningComplete) {
+      const suggested = inf.tspSuggestion.filter(id => !this.pollinatedIds.includes(id))
+      // Add any IDs the server found that we haven't discovered yet
+      for (const id of suggested) {
+        if (!this.discoveredIds.includes(id) && this.flowers.some(f => f.id === id)) {
+          this.discoveredIds.push(id)
+          this.updateFlowerState(id, 'discovered')
+          newDiscovery = true
+        }
+      }
+    }
+    if (newDiscovery && this.discoveredIds.length > 0) {
+      this.tspRoute = computeTSPRoute(this.flowers, this.discoveredIds)
     }
   }
 
@@ -338,8 +362,9 @@ export class AutonomousNavigator {
       rangefinderDistance:     this.z,
       sonarEstimate:           this.z,
       ekfConfidence:           this.phase === 'idle' ? 0 : 0.92 + Math.sin(this.time) * 0.03,
-      flowerDetectionConfidence: this.lastInference?.detections[0]?.confidence ?? 0,
-      flowersInView:           this.lastInference?.detections.length ?? 0,
+      flowerDetectionConfidence: this.lastInference?.detections[0]?.confidence
+        ?? (this.currentTarget()?.confidence ?? Math.max(0, ...this.flowers.map(f => f.confidence))),
+      flowersInView:           this.lastInference?.detections.length ?? this.discoveredIds.length,
       targetLocked:            this.phase === 'hover_align' || this.phase === 'pollinating',
       pollinationTriggered:    this.phase === 'pollinating',
       batteryPercent:          Math.max(70, 100 - this.time * 0.3),
@@ -367,7 +392,7 @@ export class AutonomousNavigator {
       planningComplete: this.planningComplete,
       positionHistory: [...this.posHistory],
       altitudeHistory: [...this.altHistory],
-      events: this.frameEvents,
+      events: this.events,
       time: this.time,
     }
   }

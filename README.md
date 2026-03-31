@@ -167,7 +167,8 @@ All simulation data is **pre-generated once at startup** — there is no physics
 
 **Flower state machine per cluster:**
 ```
-unscanned → scanned → candidate → locked → pollinated
+Mode 1 (Replay):   unscanned → scanned → candidate → locked → pollinated
+Mode 2 (Live):  undiscovered → discovered → scanned → candidate → locked → pollinated
 ```
 
 Each `ReplayFrame` contains the full drone state, all sensor values, all 10 flower cluster states, camera analysis state, and any events that fired at that timestamp.
@@ -286,21 +287,34 @@ The server starts **automatically** when you select Mode 2 in the browser. Vite'
 ```
 1. GARDEN GENERATION
    randomMissionGenerator.ts places 6–10 flower clusters (min 2.5m spacing)
+   Flower IDs: r1, r2, … rN   Initial state: 'undiscovered' (ghost outlines on map)
 
-2. SCAN PHASE — 4 lawnmower passes at x = 4.0, 8.5, 13.0, 17.5 m
-   Drone flies N→S or S→N on each pass at 8m altitude
-   WebSocket sends: { drone, flowers, phase } every 100ms
-   Server returns: { detections, phaseSuggestion, targetId, framePng, inferenceMs }
-   Discovered flowers collected, confidence updated per detection
+2. SCAN PHASE — 4 lawnmower passes at x = 3.0, 8.0, 13.0, 18.0 m
+   Drone flies S→N or N→S on each pass at 8m patrol altitude
+   ► PROXIMITY DETECTION (always active, no server required):
+     Each frame, any flower within 4.5m lateral distance is discovered immediately.
+     Confidence = 0.9 – 0.6×(dist/4.5m).  State: undiscovered → discovered.
+   ► CV DETECTION (when Python server online):
+     WebSocket sends: { drone, flowers, phase } every 100ms
+     Server returns: { detections, phaseSuggestion, targetId, framePng,
+                       inferenceMs, tspSuggestion }
+     Detection results supplement proximity detection with ML confidence values.
+   ► DYNAMIC TSP (updated on every new discovery, during scanning):
+     As each flower is found, computeTSPRoute() recomputes the nearest-neighbour
+     route over all discovered flowers.  The purple numbered overlay on the map
+     appears immediately from the first detection — not after planning completes.
 
 3. PLANNING PHASE — 2.5s dwell
-   TSP nearest-neighbor on all discovered flowers
-   Route displayed as numbered purple overlay on top-down map
+   Authoritative recompute of TSP route.
+   Fallback: if no flowers discovered (server offline + proximity miss),
+   all flowers in the garden are added as targets to prevent mission abort.
 
 4. EXECUTION — visit each flower in route order
    approach → descent → hover_align → pollinating (3s) → ascent → resume
 
-5. MISSION COMPLETE — all discovered flowers pollinated
+5. MISSION COMPLETE → RETURN TO HOME → LANDING
+   Drone flies back to home base (2, 2) at patrol altitude, then descends.
+   RAF loop stops on touchdown.
 ```
 
 ### WebSocket Protocol
@@ -317,14 +331,17 @@ The server starts **automatically** when you select Mode 2 in the browser. Vite'
 **Server → Browser (JSON, per frame):**
 ```json
 {
-  "detections":      [ { "id": "live_f0", "confidence": 0.82, "bbox": [210,185,430,405] } ],
+  "detections":      [ { "id": "r2", "confidence": 0.82, "bbox": [210,185,430,405] } ],
   "phaseSuggestion": "approach",
-  "targetId":        "live_f0",
+  "targetId":        "r2",
   "inferenceMs":     12.4,
   "inferenceMode":   "mock",
-  "framePng":        "<base64 JPEG string>"
+  "framePng":        "<base64 JPEG string>",
+  "tspSuggestion":   ["r2", "r5", "r1", "r4"]
 }
 ```
+
+`tspSuggestion` is a **server-computed nearest-neighbour TSP route** over all currently-detected flowers (see Planning Agent section below). The JS navigator merges this with its own proximity-detected route, adding any newly discovered IDs.
 
 The `framePng` is rendered as the camera panel background — a 640×640 photorealistic PIL image showing the drone's downward view with projected flower clusters, grass texture, depth-of-field blur, and vignette.
 
@@ -348,16 +365,45 @@ The mock detector mirrors the sensor table in `detection_bridge.py` (`_SENSOR_TA
 - **Flowers**: 6-petal ellipse layout, grass patch, ground shadow, stem, leaves, pistil center and dot. Seeded per `hash(flower_id)` for determinism
 - **Post-processing**: GaussianBlur DoF when altitude > 2m (up to radius 3.0), radial vignette via distance-from-center multiply factor
 
+### Planning Agent (Python Server)
+
+The inference server runs a lightweight **planning agent** on every frame. After running detections, `_compute_tsp_suggestion()` computes a nearest-neighbour TSP route over all flowers visible in the current frame:
+
+```python
+def _compute_tsp_suggestion(detections, flowers, drone_x, drone_y) -> list[str]:
+    # Join detected IDs → garden-space positions from the flowers payload
+    # Nearest-neighbour greedy: always go to the closest unvisited flower
+    # Returns: ["r2", "r5", "r1"] — ordered visit list
+```
+
+**Integration in JS navigator (`processInference`):**
+1. Server-suggested IDs that are not yet in `discoveredIds` are added immediately
+2. If the suggested route is longer than the current route, it seeds a `computeTSPRoute()` recompute
+3. After the planning phase, the authoritative final route is locked
+
+This means that if the Python server is online, the TSP route is optimized using ML-detected positions from the very first scan pass — the planning agent acts as an advisory layer on top of the proximity detector.
+
 ### Top-Down Map — Mode 2 Overlays
 
 During Mode 2, the top-down garden view shows additional information:
 
 | Overlay | Appearance | Shown when |
 |---------|-----------|-----------|
-| Ghost outlines | Gray dashed circles | Undiscovered flowers |
+| Ghost outlines | Gray dashed circles | Undiscovered flowers (before detection) |
+| Discovered ring | Green dashed pulsing circle | Flower detected, not yet confirmed scanned |
 | Scan sweep line | Cyan dashed vertical | `scanning` phase |
-| TSP route | Purple numbered polyline | After planning complete |
+| TSP route | Purple numbered polyline | From first discovery onwards (live update) |
 | Route numbers | Purple numbered badges | Route order per flower |
+
+**Flower state lifecycle (Mode 2):**
+
+```
+undiscovered  →  discovered  →  scanned  →  candidate  →  locked  →  pollinated
+(ghost only)     (green ring     (cyan        (amber        (cyan       (gold
+                  appears,       dashed       pulsing)      glow)       sparkle)
+                  flower fades   ring)
+                  in at 60%)
+```
 
 ---
 

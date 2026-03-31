@@ -201,15 +201,18 @@ export function TelemetryPanel({ frame, accumulatedEvents }: Props) {
             <span style={{ fontSize: '10px', color: '#64748b' }}>Detection Confidence</span>
             <span style={{
               fontSize: '12px', fontFamily: 'monospace', fontWeight: 700,
-              color: sensor.flowerDetectionConfidence > 0.9 ? '#22c55e'
-                : sensor.flowerDetectionConfidence > 0.5 ? '#f59e0b' : '#64748b',
+              color: sensor.flowerDetectionConfidence > 0.75 ? '#22c55e'
+                : sensor.flowerDetectionConfidence > 0.4 ? '#f59e0b'
+                : sensor.flowerDetectionConfidence > 0 ? '#22d3ee' : '#334155',
             }}>
-              {(sensor.flowerDetectionConfidence * 100).toFixed(1)}%
+              {sensor.flowerDetectionConfidence > 0
+                ? `${(sensor.flowerDetectionConfidence * 100).toFixed(1)}%`
+                : '—'}
             </span>
           </div>
           <BarGauge value={sensor.flowerDetectionConfidence} max={1}
-            color={sensor.flowerDetectionConfidence > 0.9 ? '#22c55e'
-              : sensor.flowerDetectionConfidence > 0.5 ? '#f59e0b' : '#22d3ee'}
+            color={sensor.flowerDetectionConfidence > 0.75 ? '#22c55e'
+              : sensor.flowerDetectionConfidence > 0.4 ? '#f59e0b' : '#22d3ee'}
             height={6}
           />
         </div>
@@ -244,18 +247,24 @@ export function TelemetryPanel({ frame, accumulatedEvents }: Props) {
           />
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '5px' }}>
-          {['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f9'].map(fid => {
+          {frame.flowers.map(flower => {
+            const fid = flower.id
             const pollinated = mission.pollinatedFlowerIds.includes(fid)
             const isTarget = mission.currentTargetFlowerId === fid
+            const isDiscovered = flower.state !== 'unscanned'
+            const bg    = pollinated ? '#22c55e22' : isTarget ? '#22d3ee22' : isDiscovered ? '#1e3a5f' : '#0a1628'
+            const col   = pollinated ? '#22c55e'   : isTarget ? '#22d3ee'   : isDiscovered ? '#64748b' : '#1e3a5f'
+            const bord  = pollinated ? '#22c55e44' : isTarget ? '#22d3ee44' : isDiscovered ? '#334155' : '#1e3a5f33'
             return (
               <span key={fid} style={{
                 padding: '1px 4px',
                 borderRadius: '2px',
                 fontSize: '8px',
                 fontFamily: 'monospace',
-                background: pollinated ? '#22c55e22' : (isTarget ? '#22d3ee22' : '#0f2744'),
-                color: pollinated ? '#22c55e' : (isTarget ? '#22d3ee' : '#334155'),
-                border: `1px solid ${pollinated ? '#22c55e44' : (isTarget ? '#22d3ee44' : '#1e3a5f')}`,
+                background: bg,
+                color: col,
+                border: `1px solid ${bord}`,
+                transition: 'background 0.4s, color 0.4s',
               }}>
                 {fid}
               </span>
