@@ -5,6 +5,8 @@ import { DetectionReticle } from './DetectionReticle'
 import { PollinationEffect } from './PollinationEffect'
 import { MissionPhaseOverlay } from './MissionPhaseOverlay'
 import { AnalysisHud } from './AnalysisHud'
+import { FlowVectorOverlay } from './FlowVectorOverlay'
+import { OpticalFlowHud } from './OpticalFlowHud'
 
 const VW = 800
 const VH = 500
@@ -12,7 +14,14 @@ const VH = 500
 export function CameraAnalysisScene({ af }: { af: AnalysisFrame }) {
   const { phase, targetId, confidence, flowersInView, targetLocked,
           pollinationActive, pollinatedIds, altitude, time,
-          confidenceHistory, flowers, frustum } = af
+          confidenceHistory, flowers, frustum,
+          ofVx, ofVy, ofQuality, ofStrength, ofPrecision, ofStability, ofNoise,
+          sensorDistanceMm, distanceInches } = af
+
+  // Jitter offset when sensor quality is low (deterministic from time)
+  const jitter = ofQuality < 50 ? (1 - ofQuality / 50) * 2.5 : 0
+  const jx = jitter * Math.sin(time * 23.7)
+  const jy = jitter * Math.cos(time * 19.1)
 
   // Center of the reticle (in SVG space)
   const reticleCx = Math.max(10, Math.min(790, frustum.centerX * VW))
@@ -58,13 +67,15 @@ export function CameraAnalysisScene({ af }: { af: AnalysisFrame }) {
           stroke="#0f172a" strokeWidth={0.5} />
       ))}
 
-      {/* Flowers */}
-      {flowers.map(f => (
-        <FlowerClusterRenderer key={f.id} flower={f} />
-      ))}
+      {/* Flowers (jitter applied when sensor quality is low) */}
+      <g transform={`translate(${jx}, ${jy})`}>
+        {flowers.map(f => (
+          <FlowerClusterRenderer key={f.id} flower={f} />
+        ))}
+      </g>
 
       {/* Heatmap */}
-      <DetectionHeatmap flowers={flowers} phase={phase} />
+      <DetectionHeatmap flowers={flowers} phase={phase} qualityIntensity={ofQuality / 255} />
 
       {/* Reticle */}
       <DetectionReticle cx={reticleCx} cy={reticleCy}
@@ -87,6 +98,25 @@ export function CameraAnalysisScene({ af }: { af: AnalysisFrame }) {
         altitude={altitude}
         pollinatedCount={pollinatedIds.length}
         totalFlowers={flowers.length}
+      />
+
+      {/* Optical flow vector overlay */}
+      <FlowVectorOverlay
+        vx={ofVx} vy={ofVy}
+        quality={ofQuality}
+        stability={ofStability}
+        time={time}
+      />
+
+      {/* Optical flow sensor data HUD (top-right) */}
+      <OpticalFlowHud
+        vx={ofVx} vy={ofVy}
+        quality={ofQuality}
+        strength={ofStrength}
+        precision={ofPrecision}
+        stability={ofStability}
+        sensorDistanceMm={sensorDistanceMm}
+        distanceInches={distanceInches}
       />
 
       {/* HUD strip */}

@@ -105,6 +105,15 @@ function computeAnalysisFrame(frame: ReplayFrame): AnalysisFrame {
     confidenceHistory: camera.confidenceHistory,
     flowers: flowerRenderStates,
     frustum,
+    ofVx:           sensor.flowVelocityX,
+    ofVy:           sensor.flowVelocityY,
+    ofQuality:      sensor.opticalFlowQuality,
+    ofStrength:     sensor.ofStrength,
+    ofPrecision:    sensor.ofPrecision,
+    ofStability:    sensor.ofStability,
+    ofNoise:        sensor.ofNoise,
+    sensorDistanceMm: sensor.sensorDistanceMm,
+    distanceInches: sensor.distanceInches,
   }
 }
 
