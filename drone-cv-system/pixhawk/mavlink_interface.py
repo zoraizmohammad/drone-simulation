@@ -11,11 +11,21 @@ Handles:
 This layer is intentionally thin — all it does is send/receive MAVLink messages.
 The FlightController layer builds higher-level commands on top of this.
 
-Physical wiring (Raspberry Pi 4 ↔ Pixhawk 4/6):
-  RPi GPIO 14 (TX) → Pixhawk TELEM2 RX
-  RPi GPIO 15 (RX) → Pixhawk TELEM2 TX
-  RPi GND         → Pixhawk GND
-  Baud rate: 921600 (set in PX4 param SER_TEL2_BAUD=921600)
+Physical wiring (Raspberry Pi ↔ Pixhawk 2.4.8):
+  RPi GPIO 14 (UART TX) → Pixhawk TELEM2 RX pin
+  RPi GPIO 15 (UART RX) → Pixhawk TELEM2 TX pin
+  RPi GND               → Pixhawk GND (common ground)
+  Baud rate: 921600 — set ArduCopter param SERIAL1_BAUD=921 (TELEM2 = SERIAL1 on 2.4.8)
+
+  NOTE: Disable RPi Bluetooth to free up the hardware UART:
+    Add 'dtoverlay=disable-bt' to /boot/config.txt and reboot.
+    Use /dev/ttyAMA0 (hardware UART) not /dev/ttyS0 (mini-UART).
+
+  Servo wiring for pollination actuator:
+    Pixhawk AUX OUT 1 signal pin → Servo signal wire
+    Dedicated 5V BEC (+)         → Servo power (red)
+    Common GND                   → Servo ground
+    DO NOT power the servo from the RPi 5V pin — brownout risk.
 """
 
 from __future__ import annotations
@@ -334,6 +344,36 @@ class MAVLinkInterface:
         self.send_position_target_local_ned(
             vx=vx, vy=vy, vz=vz,
             type_mask=velocity_mask,
+        )
+
+    def set_aux_servo(self, channel: int = 1, pwm_us: int = 1500) -> bool:
+        """
+        Drive a Pixhawk AUX output channel to a specific PWM value via MAVLink
+        DO_SET_SERVO command.  Preferred over direct RPi GPIO because:
+          - Servo timing is hardware-accurate (Pixhawk PWM timer)
+          - Command is logged in Pixhawk's flight log (DataFlash)
+          - Failsafe can retract the servo if the companion computer disconnects
+
+        Args:
+            channel: AUX port number 1-6 (AUX OUT 1 → channel=1).
+                     ArduCopter maps AUX 1 to servo function output 9.
+                     Ensure SERVO9_FUNCTION=0 (passthrough) in ArduCopter params.
+            pwm_us:  PWM pulse width in microseconds.
+                     1000 µs = fully retracted (0°)
+                     1500 µs = mid-point (90°)
+                     2000 µs = fully deployed (180°)
+
+        Returns:
+            True if Pixhawk acknowledged the command.
+        """
+        # MAVLink instance_number for AUX channels: AUX1=9, AUX2=10, ... in ArduCopter
+        # DO_SET_SERVO param1 = servo number (1-indexed output number, not AUX label)
+        # For Pixhawk 2.4.8 / ArduCopter: output 9 = AUX OUT 1
+        servo_number = 8 + channel   # AUX1=9, AUX2=10, etc.
+        return self.send_command_long(
+            mavutil.mavlink.MAV_CMD_DO_SET_SERVO,
+            param1=float(servo_number),
+            param2=float(pwm_us),
         )
 
     # ------------------------------------------------------------------
