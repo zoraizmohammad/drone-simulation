@@ -111,7 +111,7 @@ export interface InferenceResult {
   phaseSuggestion: LivePhase
   targetId: string | null
   inferenceMs: number
-  inferenceMode: 'onnx' | 'mock'
+  inferenceMode: 'coral' | 'onnx' | 'mock'  // coral = Google Coral USB TPU (primary), onnx = CPU fallback, mock = physics model
   framePng: string | null
   tspSuggestion: string[]  // server-computed TSP visit order for detected flowers
 }
