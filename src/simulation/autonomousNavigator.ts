@@ -55,6 +55,7 @@ export class AutonomousNavigator {
   private frameIdx = 0
   private lastInference: InferenceResult | null = null
   private onTermLog: TerminalLogFn | null = null
+  private agentFeedbackUrl: string | null = 'http://localhost:8766/feedback'
   done = false
   /** Dynamic confidence threshold — can be updated by agent decisions */
   currentConfidenceThreshold = 0.75
@@ -211,9 +212,27 @@ export class AutonomousNavigator {
         this.updateFlowerState(target.id, 'pollinated')
         this.emit(`POLLINATION COMPLETE — ${target.id}`, 'success')
         this.tlog('phase', `POLLINATED  ${target.id}  total=${this.pollinatedIds.length}/${this.flowers.length}  T+${this.time.toFixed(2)}s`)
+        // Fire-and-forget feedback to agent bandit
+        this.sendPollinationFeedback(true)
       }
       this.transition('ascent')
     }
+  }
+
+  private sendPollinationFeedback(success: boolean) {
+    if (!this.agentFeedbackUrl) return
+    const body = JSON.stringify({
+      phase: this.phase,
+      of_stability: this.buildFrame().sensor.ofStability,
+      battery_pct: this.buildFrame().sensor.batteryPercent,
+      success,
+    })
+    fetch(this.agentFeedbackUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      signal: AbortSignal.timeout(2000),
+    }).catch(() => { /* agent server may be offline */ })
   }
 
   private doAscent(dt: number) {
