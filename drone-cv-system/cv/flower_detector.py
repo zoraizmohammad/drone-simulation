@@ -1,11 +1,19 @@
 """
 Flower Detector
 ---------------
-Runs YOLOv8 (or ONNX export) inference on each camera frame to detect flowers.
+Detects flowers from camera frames using a three-tier inference backend:
+
+  1. Google Coral USB TPU (primary — fastest, ~15-30 FPS on RPi)
+       Requires flower_detector_edgetpu.tflite (EdgeTPU-compiled model)
+       and pycoral / libedgetpu1-std installed on the Raspberry Pi.
+
+  2. ONNX Runtime CPU (fallback — slower, ~8-12 FPS at 640×640 on RPi)
+       YOLOv8n exported to ONNX. Used when Coral is unavailable.
+
+  3. PyTorch / Ultralytics (last resort — slowest, requires torch installed)
+
 Returns structured Detection objects with bounding boxes, class, confidence,
 and a camera-space bearing vector to the flower center.
-
-On Raspberry Pi 4 (4GB), yolov8n ONNX runs at ~8-12 FPS at 640x640.
 """
 
 from __future__ import annotations
@@ -106,22 +114,45 @@ class FlowerDetector:
 
         self._model = None
         self._ort_session = None
+        self._coral = None
+        self._backend = 'none'
 
-        if self.use_onnx:
-            self._load_onnx(mcfg["onnx_path"])
-        else:
-            self._load_pytorch(mcfg["weights_path"])
+        # Try Coral TPU first (fastest on RPi with Google Coral USB Accelerator)
+        coral_path = mcfg.get("coral_path", "")
+        if coral_path:
+            self._load_coral(coral_path)
 
-        logger.info(f"FlowerDetector ready — backend={'ONNX' if self.use_onnx else 'PyTorch'}")
+        # Fall back to ONNX if Coral unavailable
+        if self._coral is None:
+            if self.use_onnx:
+                self._load_onnx(mcfg["onnx_path"])
+            else:
+                self._load_pytorch(mcfg["weights_path"])
+
+        logger.info(f"FlowerDetector ready — backend={self._backend}")
 
     # ------------------------------------------------------------------
     # Model Loading
     # ------------------------------------------------------------------
 
+    def _load_coral(self, coral_path: str):
+        try:
+            from cv.coral_detector import CoralDetector
+            detector = CoralDetector(coral_path, conf_threshold=self.conf_threshold)
+            if detector.available:
+                self._coral = detector
+                self._backend = 'coral'
+                logger.info(f"Coral TPU detector ready: {coral_path}")
+            else:
+                logger.warning("Coral model loaded but TPU not available — falling back to ONNX")
+        except Exception as e:
+            logger.warning(f"Coral load failed ({e}) — falling back to ONNX")
+
     def _load_pytorch(self, weights_path: str):
         try:
             from ultralytics import YOLO
             self._model = YOLO(weights_path)
+            self._backend = 'pytorch'
             logger.info(f"Loaded PyTorch model: {weights_path}")
         except Exception as e:
             logger.error(f"Failed to load PyTorch model: {e}")
@@ -136,11 +167,11 @@ class FlowerDetector:
                 providers=["CPUExecutionProvider"],
             )
             self._onnx_input_name = self._ort_session.get_inputs()[0].name
+            self._backend = 'onnx'
             logger.info(f"Loaded ONNX model: {onnx_path}")
         except Exception as e:
             logger.warning(f"ONNX load failed ({e}), falling back to PyTorch")
             self.use_onnx = False
-            # Derive .pt path from .onnx path
             pt_path = onnx_path.replace(".onnx", ".pt")
             self._load_pytorch(pt_path)
 
@@ -160,14 +191,26 @@ class FlowerDetector:
         """
         t0 = time.perf_counter()
 
-        if self.use_onnx and self._ort_session is not None:
+        # Coral TPU path (primary — fastest on RPi with Coral USB accelerator)
+        if self._coral is not None:
+            coral_dets, _ = self._coral.detect(frame_rgb)
+            detections = [
+                Detection(
+                    x1=d.x1, y1=d.y1, x2=d.x2, y2=d.y2,
+                    confidence=d.confidence,
+                    class_id=d.class_id,
+                    class_name=d.class_name,
+                )
+                for d in coral_dets
+                if d.confidence >= self.conf_threshold
+            ]
+        elif self.use_onnx and self._ort_session is not None:
             raw_detections = self._infer_onnx(frame_rgb)
+            detections = self._parse_detections(raw_detections, frame_rgb.shape)
         else:
             raw_detections = self._infer_pytorch(frame_rgb)
+            detections = self._parse_detections(raw_detections, frame_rgb.shape)
 
-        detections = self._parse_detections(raw_detections, frame_rgb.shape)
-
-        # Attach camera bearing vectors
         for det in detections:
             det.bearing = self._compute_bearing(det.cx, det.cy)
 
