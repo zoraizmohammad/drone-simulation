@@ -97,6 +97,44 @@ class FramePreprocessor:
 
         return True, undistorted, inference_rgb
 
+    def read_frame_for_coral(
+        self, target_size: tuple = (320, 320)
+    ) -> Tuple[bool, Optional[np.ndarray], Optional[np.ndarray]]:
+        """
+        Read and preprocess a frame specifically for Google Coral USB TPU inference.
+
+        The Coral EdgeTPU requires:
+          - uint8 (NOT float32) pixel values in range [0, 255]
+          - NHWC layout: [1, height, width, 3]
+          - Channel order: RGB
+
+        This is intentionally different from the ONNX path which requires
+        float32 NCHW normalized to [0.0, 1.0].
+
+        Args:
+            target_size: (width, height) to resize to. Must match the model's
+                         input tensor shape (e.g. (320, 320) for MobileNet-SSD).
+
+        Returns:
+            (success, undistorted_bgr, coral_tensor)
+            - undistorted_bgr: full-res undistorted frame (for display/tracking)
+            - coral_tensor: [1, H, W, 3] uint8 ndarray ready for Coral set_tensor()
+        """
+        ret, raw = self.read_raw()
+        if not ret or raw is None:
+            return False, None, None
+
+        undistorted = cv2.remap(raw, self.map1, self.map2, cv2.INTER_LINEAR)
+
+        # Resize to Coral model input size
+        resized = cv2.resize(undistorted, target_size, interpolation=cv2.INTER_LINEAR)
+
+        # Convert BGR → RGB and expand to [1, H, W, 3] uint8
+        rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+        coral_tensor = np.expand_dims(rgb, axis=0)   # [1, H, W, 3], dtype=uint8
+
+        return True, undistorted, coral_tensor
+
     def pixel_to_camera_ray(self, px: float, py: float) -> np.ndarray:
         """
         Convert a pixel coordinate to a normalized camera-space direction vector.
