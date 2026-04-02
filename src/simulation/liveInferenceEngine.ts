@@ -8,7 +8,7 @@ const MAX_TERMINAL = 500
 export interface LiveInferenceState {
   currentFrame: LiveFrame | null
   wsStatus: WsStatus
-  inferenceMode: 'onnx' | 'mock' | null
+  inferenceMode: 'coral' | 'onnx' | 'mock' | null
   inferenceMs: number
   isRunning: boolean
   terminalEntries: TerminalEntry[]
@@ -33,7 +33,7 @@ export function useLiveInferenceEngine(): LiveInferenceState {
 
   const [frame, setFrame]           = useState<LiveFrame | null>(null)
   const [wsStatus, setWsStatus]     = useState<WsStatus>('disconnected')
-  const [inferenceMode, setInfMode] = useState<'onnx' | 'mock' | null>(null)
+  const [inferenceMode, setInfMode] = useState<'coral' | 'onnx' | 'mock' | null>(null)
   const [inferenceMs, setInfMs]     = useState(0)
   const [isRunning, setIsRunning]   = useState(false)
 
