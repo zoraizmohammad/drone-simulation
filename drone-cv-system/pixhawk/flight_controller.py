@@ -14,10 +14,13 @@ Provides clean, mission-level API:
 All blocking methods poll telemetry in a loop until the maneuver is complete
 or a timeout is exceeded. Non-blocking variants are also provided.
 
-PX4 vs ArduPilot note:
-  - ArduPilot: arm → set GUIDED mode → takeoff command
-  - PX4: set OFFBOARD mode requires continuous setpoint stream → use DroneKit
-         or send SET_POSITION_TARGET at >2Hz before switching to OFFBOARD
+Hardware note (F450 / Pixhawk 2.4.8 / ArduCopter):
+  - F450 motor layout: Motor 1 (front-right) CCW, Motor 2 (rear-left) CCW,
+    Motor 3 (front-left) CW, Motor 4 (rear-right) CW — standard X-quad layout
+  - Flight mode: GUIDED for autonomous mission. RC transmitter (FS-i6X / FS-iA6B
+    in PPM mode, CH5) can override to STABILIZE/LOITER at any time — always safe.
+  - AUX OUT 1 drives the pollen-dispenser servo (SERVO9_FUNCTION=0 in ArduCopter).
+  - ArduPilot sequence: arm → GUIDED mode → takeoff command → position setpoints
 """
 
 from __future__ import annotations
@@ -344,6 +347,64 @@ class FlightController:
     # Safety
     # ------------------------------------------------------------------
 
+    def trigger_aux_servo(
+        self,
+        channel: int = 1,
+        deployed_pwm_us: int = 1700,
+        hold_s: float = 2.5,
+        retract_pwm_us: int = 1000,
+    ) -> bool:
+        """
+        Actuate the pollination servo via Pixhawk AUX OUT 1 using MAVLink
+        DO_SET_SERVO — the preferred architecture because:
+          - Hardware PWM timing (no Linux scheduler jitter)
+          - Logged in Pixhawk DataFlash flight log
+          - Failsafe retract if companion computer disconnects
+
+        Sequence:
+          1. Deploy → AUX OUT 1 to deployed_pwm_us (default 1700 µs ≈ 135°)
+          2. Hold for hold_s seconds (pollen transfer dwell)
+          3. Retract → AUX OUT 1 to retract_pwm_us (default 1000 µs = 0°)
+
+        ArduCopter parameter required:
+          SERVO9_FUNCTION = 0   (manual passthrough for AUX OUT 1)
+
+        Args:
+            channel:        AUX port number (1 = AUX OUT 1).
+            deployed_pwm_us: PWM for deployed position (µs).
+            hold_s:         Dwell time in deployed position (seconds).
+            retract_pwm_us: PWM for retracted/safe position (µs).
+        """
+        logger.info(f"Pollination servo DEPLOY — AUX {channel} → {deployed_pwm_us}µs, hold {hold_s}s")
+        ok = self.mav.set_aux_servo(channel, deployed_pwm_us)
+        if not ok:
+            logger.warning("DO_SET_SERVO NACK — servo may not have deployed")
+
+        time.sleep(hold_s)
+
+        logger.info(f"Pollination servo RETRACT — AUX {channel} → {retract_pwm_us}µs")
+        self.mav.set_aux_servo(channel, retract_pwm_us)
+        return ok
+
+    def is_rc_override_active(self) -> bool:
+        """
+        Detect if the RC transmitter (FS-i6X) has overridden autonomous control.
+        In ArduCopter, switching the flight mode channel (CH5) to STABILIZE,
+        LOITER, or any non-GUIDED mode means the pilot has taken manual control.
+
+        The mission should pause and NOT send position setpoints while an RC
+        override is active — the Pixhawk is the authority in this state.
+
+        Returns True if the current flight mode is not the autonomous GUIDED mode.
+        """
+        current_mode = self.telem.mode
+        # ArduCopter GUIDED mode custom_mode value is 4
+        # If mode is not GUIDED, the RC pilot has overridden
+        is_guided = (current_mode == '4' or current_mode.upper() == 'GUIDED')
+        if not is_guided:
+            logger.warning(f"RC override active — mode={current_mode}, mission paused")
+        return not is_guided
+
     def is_safe_to_continue(self) -> bool:
         """Check all safety conditions during flight."""
         if self.telem.battery_pct < self.limits["min_battery_pct"]:
@@ -351,6 +412,9 @@ class FlightController:
             return False
         if not self.telem.ekf_healthy:
             logger.warning("EKF unhealthy — RTH")
+            return False
+        if self.is_rc_override_active():
+            # RC pilot has taken control; do not command autonomous movement
             return False
         if self._home_lat is not None:
             dist = self._distance_from_home_m()
