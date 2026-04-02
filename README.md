@@ -151,7 +151,8 @@ python3 main.py
 ║   scene_renderer.py  →  PIL 640×640 photorealistic frame                 ║
 ║         ↓                                                                 ║
 ║   DetectionBridge                                                         ║
-║     ├─ OnnxDetector  →  YOLOv8n ONNX  →  bbox parse  →  geo-match       ║
+║     ├─ CoralBridge   →  Google Coral USB TPU (_edgetpu.tflite)            ║
+║     ├─ OnnxDetector  →  YOLOv8n ONNX CPU  →  bbox parse  →  geo-match   ║
 ║     └─ MockDetector  →  physics confidence (altitude + distance)          ║
 ║         ↓                                                                 ║
 ║   Planning Agent (_compute_tsp_suggestion)  →  TSP route                 ║
@@ -174,10 +175,11 @@ python3 main.py
 ║         ↓                                                                 ║
 ║   StateMachine (13 phases, 20 Hz tick loop)                              ║
 ║         ↓                                                                 ║
-║   FlightController  ──→  MAVLinkInterface  ──→  Pixhawk 4/6              ║
+║   FlightController  ──→  MAVLinkInterface  ──→  Pixhawk 2.4.8            ║
 ║         ↓                        ↑                                        ║
 ║   PollinationManager          Telemetry stream (ATTITUDE, GPS,            ║
-║   (GPIO PWM servo)             OPTICAL_FLOW_RAD, EKF_STATUS, …)         ║
+║   (MAVLink AUX OUT 1          OPTICAL_FLOW_RAD, EKF_STATUS, …)          ║
+║    → pollen-dispenser servo)                                              ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 ```
 
@@ -185,62 +187,116 @@ python3 main.py
 
 ## Physical Drone Hardware Stack
 
-### Flight Controller — Pixhawk 4/6
+### Airframe & Propulsion
 
-The Pixhawk runs ArduPilot or PX4 firmware and handles:
+| Component | Spec |
+|---|---|
+| Frame | F450 glass-fiber quad, 450 mm wheelbase |
+| Landing gear | Plastic landing skid |
+| Motors | 4× brushless — 2212 920 KV or 2213 935 KV |
+| ESCs | 4× 20 A ESC |
+| Propellers | 4× 9450 self-tightening (2× CW, 2× CCW) |
+| Battery | 11.1 V 3S LiPo, 4200 mAh |
+| Power module | 5 V 2 A BEC — powers Pixhawk; **separate** 5 V BEC for RPi and servo |
 
-- **IMU fusion:** 3-axis accelerometer + gyroscope at 1 kHz, fused by the EKF2 extended Kalman filter
-- **Barometric altitude:** MS5611 barometer for coarse altitude hold
-- **GPS:** u-blox M8N module for global positioning, fused into EKF alongside IMU
-- **MAVLink output:** Streams telemetry over TELEM2 serial port at 921 600 baud — ATTITUDE, GLOBAL_POSITION_INT, OPTICAL_FLOW_RAD, DISTANCE_SENSOR, EKF_STATUS_REPORT, SYS_STATUS at 10–50 Hz
-- **Motor ESCs:** 4× ESC controlled by Pixhawk PWM/DSHOT — the Pixhawk handles all low-level stabilization loops (rate PID, attitude PID, altitude hold). The Raspberry Pi only sends high-level position/velocity setpoints via MAVLink.
-- **GUIDED mode:** The flight controller is placed in GUIDED or OFFBOARD mode during autonomous missions so it accepts `SET_POSITION_TARGET_LOCAL_NED` commands from the companion computer.
+**Motor layout (ArduCopter X-quad):**
 
-### Companion Computer — Raspberry Pi 4
+```
+       FRONT
+  1 (CCW) · 3 (CW)
+     ·         ·
+  2 (CCW) · 4 (CW)
+       REAR
+```
 
-The RPi 4 (4 GB RAM) is the mission brain:
+### RC Control (Manual Override Only)
 
-- Runs the entire Python CV + mission stack at ~20 Hz
-- Communicates with Pixhawk over a **dedicated UART bridge** (RPi GPIO 14/15 → TELEM2 pins) at 921 600 baud using the pymavlink library
-- Runs YOLOv8n inference at ~15 fps using ONNX Runtime (CPU; ~180 ms/frame)
-- Sends position setpoints and arming commands back to Pixhawk in real time
-- Controls the pollination servo via GPIO PWM
+The **FS-i6X transmitter + FS-iA6B receiver** is connected to Pixhawk RC IN in PPM mode and is used exclusively for manual override. The entire autonomous mission runs without any RC input. The RC link provides:
+
+- **CH5** → Flight mode switching (GUIDED ↔ STABILIZE/LOITER)
+- **CH7** → RTL/failsafe
+- **RC failsafe:** If signal is lost, Pixhawk executes RTL automatically
+- `is_rc_override_active()` in `FlightController` detects when the pilot has switched out of GUIDED and pauses autonomous position commands
+
+### Flight Controller — Pixhawk 2.4.8 (ArduCopter)
+
+- **IMU fusion:** 3-axis accelerometer + gyroscope, fused by EKF2 extended Kalman filter
+- **Barometer:** MS5611 for coarse altitude hold
+- **GPS:** M8N u-blox module with integrated compass on foldable mast
+- **MAVLink output:** TELEM2 port (SERIAL1 in ArduCopter) at 921 600 baud
+- **Motor mixing:** PWM outputs MAIN OUT 1–4 drive the 4× 20 A ESCs; all stabilization loops (rate PID, attitude PID, altitude hold) run on Pixhawk — the companion computer only sends high-level `SET_POSITION_TARGET_LOCAL_NED` setpoints
+- **AUX OUT 1:** Drives the pollen-dispenser servo via MAVLink `DO_SET_SERVO` (SERVO9_FUNCTION = 0, passthrough)
+- **GUIDED mode:** Required for autonomous mission; RC override to any other mode pauses Python position commands immediately
+
+### Companion Computer — Raspberry Pi
+
+- Runs full Python CV + mission stack at ~20 Hz mission tick
+- Communicates with Pixhawk over hardware UART (`/dev/ttyAMA0`, 921 600 baud) via pymavlink — Bluetooth must be disabled to free the hardware UART: `dtoverlay=disable-bt` in `/boot/config.txt`
+- **Inference accelerator: Google Coral USB Edge TPU** — connected via USB 3.0, provides ~4 TOPS INT8 inference, achieving near real-time flower detection on EdgeTPU-compiled TFLite models
+- Falls back to ONNX Runtime CPU (~8–12 FPS at 640×640) if Coral is not detected
+- Sends position setpoints + arming commands to Pixhawk via MAVLink
+- Triggers pollination servo via `FlightController.trigger_aux_servo()` → MAVLink `DO_SET_SERVO` on AUX OUT 1
+
+### Google Coral USB Accelerator
+
+The Coral USB Edge TPU is the primary inference accelerator:
+
+| Property | Value |
+|---|---|
+| Interface | USB 3.0 (USB-C to USB-A on RPi) |
+| Performance | ~4 TOPS (INT8), ~15–30 FPS on 320×320 MobileNet-SSD |
+| Model format | EdgeTPU-compiled `.tflite` (INT8 quantized, uint8 NHWC input) |
+| Runtime | `libedgetpu1-std` (apt) + `pycoral` (pip) |
+| Compile | `edgetpu_compiler flower_detector.tflite → flower_detector_edgetpu.tflite` |
+
+Input tensor required by Coral: `[1, 320, 320, 3]` **uint8 NHWC** — completely different from ONNX which requires `[1, 3, 640, 640]` float32 NCHW. The `CoralDetector` and `FramePreprocessor.read_frame_for_coral()` handle this conversion.
 
 ### Camera
 
-**Raspberry Pi Camera Module v2** (Sony IMX219, 8 MP) connected over CSI ribbon cable.
+Downward-facing camera (CSI or USB) capturing the garden below the drone:
 
-- Resolution captured: 640×640 px (center-cropped from 1920×1080)
-- Frame rate: ~30 fps capture, inference triggered every ~66 ms
-- Field of view: ~62° diagonal → at 1.5m hover altitude, the camera footprint covers ~1.7m × 1.7m on the ground, which is sufficient to frame a single flower cluster
+- Center-cropped and resized to model input size (640×640 for ONNX, 320×320 for Coral)
+- BGR → RGB conversion before inference
+- Field of view at 1.5 m hover altitude: ~1.7 m × 1.7 m — sufficient to frame one flower cluster
 
 ### Pollination Mechanism
 
-A miniature brushless vibration motor + pollen brush assembly is mounted below the drone frame on a 9g servo arm. The `PollinationManager` triggers GPIO PWM output to:
+A **micro servo** arm actuates a lightweight **pollen-dispenser assembly** (pollen reservoir + dispensing gate/rotor + mounting bracket) mounted below the drone frame. No vibration motor — the servo arm physically positions the dispenser over the flower and a gravity/air-puff mechanism releases pollen during the 2.5-second dwell.
 
-1. Rotate the servo arm 45° downward to contact position
-2. Activate the vibration motor for 2 seconds (pollen transfer dwell time)
-3. Retract the servo arm to stowed position
+**Actuation sequence (via `FlightController.trigger_aux_servo()`):**
 
-The GPIO control uses the RPi's hardware PWM pins so pulse timing is precise even under CPU load.
+1. Pixhawk receives `DO_SET_SERVO` → AUX OUT 1 → 1700 µs PWM → servo arm deploys
+2. Hold 2.5 s (pollen transfer dwell)
+3. Pixhawk receives `DO_SET_SERVO` → AUX OUT 1 → 1000 µs PWM → servo arm retracts
+
+Hardware PWM from Pixhawk AUX ensures timing accuracy and the command is logged in DataFlash. The GPIO fallback (RPi PWM on pin 18) is available for bench testing without a Pixhawk.
 
 ### Wiring Diagram
 
 ```
-Raspberry Pi 4 GPIO                     Pixhawk 4 TELEM2
-─────────────────                       ────────────────
-GPIO 14 (UART TX)  ──────────────────→  RX
-GPIO 15 (UART RX)  ←──────────────────  TX
-GND                ─────────────────── GND
+Raspberry Pi UART                       Pixhawk 2.4.8 TELEM2
+─────────────────                       ────────────────────
+GPIO 14 (TX, /dev/ttyAMA0) ──────────→ TELEM2 RX
+GPIO 15 (RX, /dev/ttyAMA0) ←────────── TELEM2 TX
+GND                        ─────────── GND
+(921600 baud, disable-bt overlay required)
 
-Raspberry Pi 4 GPIO                     Servo / Motor
-─────────────────                       ─────────────
-GPIO 12 (PWM0)     ──────────────────→  Servo signal
-GPIO 13 (PWM1)     ──────────────────→  Vibration motor PWM
-5V                 ──────────────────→  Servo VCC
-GND                ─────────────────── GND
+Pixhawk 2.4.8 AUX OUT                  Pollen-Dispenser Servo
+──────────────────────                  ──────────────────────
+AUX OUT 1 (signal) ──────────────────→ Servo signal wire (orange)
+Dedicated 5V BEC (+) ────────────────→ Servo power (red)   ← NOT RPi 5V pin
+Common GND ──────────────────────────→ Servo ground (black)
+(SERVO9_FUNCTION = 0 in ArduCopter params)
 
-RPi Camera CSI ribbon ──────────────→  Camera connector (J3)
+FS-iA6B Receiver (PPM)                 Pixhawk 2.4.8 RC IN
+──────────────────────                  ───────────────────
+PPM output ──────────────────────────→ RC IN (CH5 = flight mode, CH7 = RTL)
+
+Coral USB Edge TPU                      Raspberry Pi
+──────────────────                      ────────────
+USB-C connector ─────────────────────→ USB 3.0 port
+
+Downward camera (CSI) ───────────────→ RPi CSI connector (or USB)
 ```
 
 ---
@@ -290,11 +346,13 @@ Builds on `MAVLinkInterface` to provide mission-level commands:
 
 | Method | MAVLink command | Notes |
 |---|---|---|
-| `preflight_check()` | Reads telemetry snapshot | Verifies EKF healthy, GPS lock, battery >20%, geofence valid |
-| `arm()` | `MAV_CMD_COMPONENT_ARM_DISARM (1)` | Requires GUIDED mode active |
-| `disarm()` | `MAV_CMD_COMPONENT_ARM_DISARM (0)` | Only if landed |
-| `takeoff(alt_m)` | `MAV_CMD_NAV_TAKEOFF` | Blocks until altitude reached ±0.3m |
-| `goto(x, y, alt)` | `SET_POSITION_TARGET_LOCAL_NED` | NED frame, velocity feed-forward |
+| `pre_flight_checks()` | Reads telemetry snapshot | Verifies EKF healthy, GPS lock, battery >20%, not armed |
+| `arm()` | `MAV_CMD_COMPONENT_ARM_DISARM (1)` | Requires GUIDED mode active first |
+| `disarm()` | `MAV_CMD_COMPONENT_ARM_DISARM (0)` | Only if landed; force flag for emergency |
+| `takeoff(alt_m)` | `MAV_CMD_NAV_TAKEOFF` | Blocks until altitude reached ±0.5 m |
+| `goto_ned(n,e,d)` | `SET_POSITION_TARGET_LOCAL_NED` | NED frame, velocity feed-forward |
+| `trigger_aux_servo(ch, pwm)` | `MAV_CMD_DO_SET_SERVO` | Drives AUX OUT 1 → pollen dispenser |
+| `is_rc_override_active()` | Reads `telem.mode` | True if pilot switched out of GUIDED |
 | `precision_hover(x, y, alt)` | `SET_POSITION_TARGET_LOCAL_NED` | Tighter tolerance (±0.1m XY, ±0.05m Z) for hover_align |
 | `land()` | `MAV_CMD_NAV_LAND` | Blocks until landed + disarmed |
 | `set_mode(mode)` | `SET_MODE` | Switches GUIDED / STABILIZE / LOITER |
@@ -1343,7 +1401,7 @@ interface InferenceResult {
     phaseSuggestion: LivePhase;
     targetId: string | null;
     inferenceMs: number;
-    inferenceMode: 'onnx' | 'mock';
+    inferenceMode: 'coral' | 'onnx' | 'mock';  // coral = Coral TPU, onnx = CPU fallback
     framePng: string | null;         // base64 JPEG from scene renderer
     tspSuggestion: string[];         // server-computed TSP order
 }
@@ -1378,46 +1436,63 @@ interface TerminalEntry {
 
 ### Assembly Checklist
 
-1. **Frame:** 450mm quad frame, ~600g AUW with payload
-2. **Flight controller:** Pixhawk 4/6 mounted with vibration dampeners
-3. **ESCs:** 4× 30A BLHeli32 ESCs, calibrated
-4. **Motors:** 2306 2450KV brushless, propellers 5045 HQ
-5. **GPS + Compass:** u-blox M8N GPS mast-mounted above FC for clean compass readings
-6. **Companion computer:** RPi 4 (4GB) mounted with USB-C power from BEC
-7. **Camera:** RPi Camera v2 mounted on belly, angled slightly forward (~10° tilt)
-8. **Pollination payload:** 9g servo + vibration motor assembly on 3D-printed arm bracket
-9. **UART bridge:** Jumper wires from RPi GPIO 14/15 to Pixhawk TELEM2
+1. **Frame:** F450 glass-fiber quad, 450 mm wheelbase, landing skid attached
+2. **Flight controller:** Pixhawk 2.4.8 on vibration damping plate (top deck)
+3. **Power:** 11.1 V 3S 4200 mAh LiPo in middle deck; power module to Pixhawk POWER port
+4. **ESCs:** 4× 20 A ESC connected to MAIN OUT 1–4 and to LiPo distribution
+5. **Motors:** 4× 2212 920 KV / 2213 935 KV brushless; 9450 self-tightening props (CCW on 1/2, CW on 3/4)
+6. **GPS + Compass:** M8N GPS on foldable mast, connected to Pixhawk GPS port
+7. **RC receiver:** FS-iA6B in PPM mode → Pixhawk RC IN (CH5 flight mode, CH7 RTL)
+8. **Companion computer:** Raspberry Pi mounted on bottom deck; **dedicated 5 V BEC** for power (not from Pixhawk BEC)
+9. **Coral USB TPU:** Google Coral USB Accelerator in RPi USB 3.0 port
+10. **Camera:** Downward-facing camera (CSI or USB) on RPi, pointed directly down
+11. **UART bridge:** RPi GPIO 14/15 → Pixhawk TELEM2 (921 600 baud)
+12. **Pollination payload:** Micro servo on 3D-printed arm bracket; servo signal → Pixhawk AUX OUT 1; servo power → dedicated 5 V BEC (shared ground)
 
 ### Software Setup on Raspberry Pi
 
 ```bash
-# Flash Ubuntu 22.04 Server to SD card
-# Enable UART in /boot/config.txt:
+# Flash Raspberry Pi OS Lite (64-bit) to SD card
+
+# 1. Enable UART, disable Bluetooth (to free /dev/ttyAMA0 for Pixhawk)
 echo "enable_uart=1" >> /boot/config.txt
-echo "dtoverlay=disable-bt" >> /boot/config.txt  # disable Bluetooth to free UART
+echo "dtoverlay=disable-bt" >> /boot/config.txt
+sudo reboot
 
-# Install dependencies
+# 2. Install system dependencies
 sudo apt update && sudo apt install -y python3-pip python3-opencv libopencv-dev
-pip3 install pymavlink ultralytics onnxruntime pillow loguru RPi.GPIO
 
-# Upload ONNX model
-scp flower_detector.onnx pi@drone-pi.local:~/drone-cv-system/
+# 3. Install Google Coral USB runtime
+echo "deb https://packages.cloud.google.com/apt coral-edgetpu-stable main" | \
+    sudo tee /etc/apt/sources.list.d/coral-edgetpu.list
+curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+sudo apt update && sudo apt install libedgetpu1-std
 
-# Start mission
+# 4. Install Python packages
+pip3 install pymavlink onnxruntime pillow loguru RPi.GPIO pyyaml
+# Coral packages (from Coral index):
+pip3 install pycoral tflite-runtime \
+    --extra-index-url https://google-coral.github.io/py-packages/
+
+# 5. Upload models
+scp flower_detector.onnx pi@drone-pi.local:~/drone-cv-system/models/
+scp flower_detector_edgetpu.tflite pi@drone-pi.local:~/drone-cv-system/models/
+
+# 6. Start mission
 python3 drone-cv-system/main.py
 ```
 
-### PX4/ArduPilot Parameters Required
+### ArduCopter Parameters Required
 
 | Parameter | Value | Reason |
 |---|---|---|
-| `MAV_COMP_ID` | 1 | Companion computer MAVLink ID |
-| `SERIAL2_BAUD` | 921600 | TELEM2 baud rate |
-| `SERIAL2_PROTOCOL` | 2 | MAVLink 2.0 |
-| `EKF2_AID_MASK` | 3 | GPS + vision position |
-| `PLND_ENABLED` | 1 | Precision landing |
-| `WPNAV_RADIUS` | 100 | 1m waypoint acceptance radius |
-| `GUIDED_OPTIONS` | 0 | Accept velocity setpoints |
+| `SERIAL1_BAUD` | 921 | TELEM2 baud rate (921600) |
+| `SERIAL1_PROTOCOL` | 2 | MAVLink 2.0 on TELEM2 |
+| `SERVO9_FUNCTION` | 0 | AUX OUT 1 passthrough for pollen servo |
+| `WPNAV_RADIUS` | 100 | 1 m waypoint acceptance radius |
+| `GUIDED_OPTIONS` | 0 | Accept velocity setpoints from companion |
+| `FS_THR_ENABLE` | 1 | RC throttle failsafe → RTL on signal loss |
+| `FLTMODE_CH` | 5 | CH5 for flight mode switching |
 
 ---
 
@@ -1432,12 +1507,13 @@ python3 drone-cv-system/main.py
 | **Rendering** | SVG | — | All 4 simulation panels |
 | **Backend web** | FastAPI + uvicorn | 0.110 | WebSocket inference server |
 | **Backend language** | Python | 3.9+ | CV, hardware, server |
-| **ML framework** | Ultralytics YOLOv8 | 8.x | Model training |
-| **Inference runtime** | ONNX Runtime | 1.17 | RPi + laptop inference |
+| **ML framework** | Ultralytics YOLOv8 | 8.x | Model training + ONNX/TFLite export |
+| **Inference (primary)** | Google Coral USB TPU + pycoral | 2.0 | EdgeTPU INT8 inference on RPi |
+| **Inference (fallback)** | ONNX Runtime | 1.17 | CPU inference, no Coral required |
 | **Image processing** | Pillow + NumPy | 10.x / 1.26 | Scene synthesis + preprocessing |
 | **Computer vision** | OpenCV | 4.9 | Lucas-Kanade flow, camera capture |
-| **Hardware comms** | pymavlink | 2.4 | MAVLink protocol to Pixhawk |
-| **GPIO** | RPi.GPIO | 0.7 | Servo + motor PWM |
+| **Hardware comms** | pymavlink | 2.4 | MAVLink protocol to Pixhawk 2.4.8 |
+| **GPIO** | RPi.GPIO | 0.7 | Servo GPIO fallback (AUX MAVLink preferred) |
 | **Logging** | loguru | 0.7 | Python structured logging |
 
 ---
