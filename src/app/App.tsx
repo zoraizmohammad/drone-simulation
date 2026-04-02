@@ -1,15 +1,17 @@
 import { useState } from 'preact/hooks'
 import { TerminalPanel } from '../components/TerminalPanel/TerminalPanel'
-import type { SimMode, LiveFrame, ReplayFrame, FlowerCluster, MissionPhase } from '../models/types'
+import type { SimMode, LiveFrame, ReplayFrame, FlowerCluster, MissionPhase, AgentState } from '../models/types'
 import { TopDownView } from '../components/TopDownView/TopDownView'
 import { SideView } from '../components/SideView/SideView'
 import { TelemetryPanel } from '../components/TelemetryPanel/TelemetryPanel'
 import { ZoomPanel } from '../components/ZoomPanel/ZoomPanel'
 import { ReplayControls } from '../components/ReplayControls/ReplayControls'
 import { LiveStatus } from '../components/LiveStatus/LiveStatus'
+import { AgentCommentaryPanel } from '../components/AgentPanel/AgentCommentaryPanel'
 import { ModeSelector } from './ModeSelector'
 import { useReplayEngine } from '../simulation/replayEngine'
 import { useLiveInferenceEngine } from '../simulation/liveInferenceEngine'
+import type { AgentStatus } from '../simulation/agentClient'
 
 // ── Live frame adapter ────────────────────────────────────────────────────
 // Converts a LiveFrame into a ReplayFrame so existing panels work unmodified.
@@ -106,6 +108,8 @@ function LiveApp({ onExit }: { onExit: () => void }) {
   const phase   = lf?.phase ?? 'idle'
   const [terminalOpen, setTerminalOpen] = useState(false)
 
+  const showAgent = live.agentStatus !== 'disconnected' || live.agentState.commentary.length > 0
+
   return (
     <AppShell
       phaseLabel={phase.replace(/_/g, ' ')}
@@ -117,6 +121,7 @@ function LiveApp({ onExit }: { onExit: () => void }) {
           wsStatus={live.wsStatus}
           inferenceMode={live.inferenceMode}
           inferenceMs={live.inferenceMs}
+          agentStatus={live.agentStatus}
           onRestart={live.restart}
           onExit={onExit}
           onToggleTerminal={() => setTerminalOpen(o => !o)}
@@ -130,7 +135,16 @@ function LiveApp({ onExit }: { onExit: () => void }) {
         altitudeHistory={lf?.altitudeHistory ?? []}
         accumulatedEvents={lf?.events ?? []}
         liveFrame={lf}
+        agentState={live.agentState}
       />
+
+      {showAgent && (
+        <AgentCommentaryPanel
+          agentState={live.agentState}
+          agentStatus={live.agentStatus}
+        />
+      )}
+
       <BottomBar>
         <LiveBottomBar lf={lf} />
       </BottomBar>
@@ -193,19 +207,20 @@ function AppShell({ phaseLabel, phaseColor, elapsed, modeLabel, headerRight, chi
   )
 }
 
-function FourPanels({ frame, positionHistory, altitudeHistory, accumulatedEvents, liveFrame }: {
+function FourPanels({ frame, positionHistory, altitudeHistory, accumulatedEvents, liveFrame, agentState }: {
   frame: ReplayFrame | null
   positionHistory: Array<{ x: number; y: number }>
   altitudeHistory: Array<{ time: number; z: number }>
   accumulatedEvents: import('../models/types').EventLogEntry[]
   liveFrame: LiveFrame | null
+  agentState?: AgentState
 }) {
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
       <div style={{ width: '60%', display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid #1e3a5f' }}>
         <PanelBox label="Top-Down Mission View" flex={62} borderBottom>
           {frame
-            ? <TopDownView frame={frame} positionHistory={positionHistory} liveFrame={liveFrame} />
+            ? <TopDownView frame={frame} positionHistory={positionHistory} liveFrame={liveFrame} agentState={agentState} />
             : <Placeholder label="Top-Down View" />}
         </PanelBox>
         <PanelBox label="Altitude / Side View" flex={38}>
@@ -217,7 +232,7 @@ function FourPanels({ frame, positionHistory, altitudeHistory, accumulatedEvents
       <div style={{ width: '40%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <PanelBox label="Telemetry Dashboard" flex={65} borderBottom>
           {frame
-            ? <TelemetryPanel frame={frame} accumulatedEvents={accumulatedEvents} />
+            ? <TelemetryPanel frame={frame} accumulatedEvents={accumulatedEvents} agentState={agentState} />
             : <Placeholder label="Telemetry" />}
         </PanelBox>
         <PanelBox label="Camera / Flower Analysis" flex={35} relative minHeight={320}>

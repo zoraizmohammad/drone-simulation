@@ -1,10 +1,11 @@
-import type { ReplayFrame, EventLogEntry } from '../../models/types'
+import type { ReplayFrame, EventLogEntry, AgentState } from '../../models/types'
 import { getPhaseColor } from '../../app/App'
 import { useRef, useEffect } from 'preact/hooks'
 
 interface Props {
   frame: ReplayFrame
   accumulatedEvents: EventLogEntry[]
+  agentState?: AgentState
 }
 
 function Row({ label, value, color, unit }: { label: string; value: string; color?: string; unit?: string }) {
@@ -88,7 +89,7 @@ function StatusDot({ active, color }: { active: boolean; color: string }) {
   )
 }
 
-export function TelemetryPanel({ frame, accumulatedEvents }: Props) {
+export function TelemetryPanel({ frame, accumulatedEvents, agentState }: Props) {
   const { drone, sensor, mission, camera } = frame
   const phaseColor = getPhaseColor(mission.phase)
   const speed = Math.sqrt(drone.vx ** 2 + drone.vy ** 2)
@@ -272,6 +273,45 @@ export function TelemetryPanel({ frame, accumulatedEvents }: Props) {
           })}
         </div>
       </Section>
+
+      {/* AI Agent section — live mode only */}
+      {agentState && (
+        <Section title="AI Agent">
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: '4px' }}>
+            <div style={{
+              width: 7, height: 7, borderRadius: '50%',
+              background: agentState.isConnected ? '#22c55e' : '#475569',
+              boxShadow: agentState.isConnected ? '0 0 6px #22c55e' : 'none',
+            }} />
+            <span style={{ fontSize: 9, color: agentState.isConnected ? '#22c55e' : '#475569', fontWeight: 700 }}>
+              {agentState.isConnected ? 'CLAUDE HAIKU CONNECTED' : 'AGENT OFFLINE'}
+            </span>
+          </div>
+          {agentState.lastDecision && (
+            <>
+              <Row label="Decisions" value={String(agentState.decisionsTotal)} color="#38bdf8" />
+              <Row label="Overrides" value={String(agentState.overridesApplied)} color="#a78bfa" />
+              <Row label="Latency" value={`${agentState.agentMs.toFixed(0)}`} unit="ms" />
+              <Row label="Confidence" value={`${(agentState.lastDecision.confidenceThreshold * 100).toFixed(0)}`} unit="%" color="#f59e0b" />
+              <div style={{ marginTop: 3 }}>
+                <div style={{ fontSize: 8, color: '#64748b', marginBottom: 2 }}>LAST ACTION</div>
+                <div style={{
+                  display: 'inline-block', padding: '1px 6px', borderRadius: 2, fontSize: 8,
+                  fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                  background: '#1e3a5f', color: '#38bdf8', border: '1px solid #1e3a5f',
+                }}>
+                  {agentState.lastDecision.action.replace('_', ' ')}
+                </div>
+              </div>
+              {agentState.lastDecision.reasoning && (
+                <div style={{ fontSize: 8, color: '#64748b', marginTop: 3, lineHeight: 1.4 }}>
+                  {agentState.lastDecision.reasoning.slice(0, 80)}{agentState.lastDecision.reasoning.length > 80 ? '…' : ''}
+                </div>
+              )}
+            </>
+          )}
+        </Section>
+      )}
 
       {/* Event Log */}
       <Section title="Event Log">
