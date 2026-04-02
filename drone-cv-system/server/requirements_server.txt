@@ -3,4 +3,13 @@ uvicorn[standard]>=0.29.0
 websockets>=12.0
 Pillow>=10.0.0
 numpy>=1.24.0
-onnxruntime>=1.16.0
+onnxruntime>=1.16.0      # ONNX CPU fallback path
+
+# ── Google Coral USB TPU — primary inference path on Raspberry Pi ──────────
+# Install runtime first: sudo apt install libedgetpu1-std
+# Then install via the Coral package index:
+#   pip install pycoral --extra-index-url https://google-coral.github.io/py-packages/
+#   pip install tflite-runtime --extra-index-url https://google-coral.github.io/py-packages/
+# Uncomment below when running on hardware with a Google Coral USB Accelerator:
+# pycoral>=2.0.0
+# tflite-runtime>=2.13.0
