@@ -58,14 +58,19 @@ export class WsClient {
         const result: InferenceResult = JSON.parse(ev.data)
         // Log receive summary
         const dets = result.detections
+        const modeTag = result.inferenceMode === 'coral'
+          ? 'CORAL-TPU'
+          : result.inferenceMode === 'onnx'
+          ? 'ONNX'
+          : 'MOCK'
         if (dets.length > 0) {
           const detSummary = dets.map(d => `${d.id}@${(d.confidence * 100).toFixed(0)}%`).join(' ')
-          this.log('ws-in', `RX ← ${result.inferenceMode.toUpperCase()} ${result.inferenceMs.toFixed(0)}ms | ${dets.length} det(s): ${detSummary}`)
+          this.log('ws-in', `RX ← ${modeTag} ${result.inferenceMs.toFixed(0)}ms | ${dets.length} det(s): ${detSummary}`)
           for (const d of dets) {
             this.log('detect', `  DETECT ${d.cls.padEnd(16)} ${d.id}  conf=${(d.confidence * 100).toFixed(1)}%  bbox=[${d.bbox.map(v => v.toFixed(0)).join(',')}]`)
           }
         } else {
-          this.log('ws-in', `RX ← ${result.inferenceMode.toUpperCase()} ${result.inferenceMs.toFixed(0)}ms | 0 detections`)
+          this.log('ws-in', `RX ← ${modeTag} ${result.inferenceMs.toFixed(0)}ms | 0 detections`)
         }
         this.onMessage(result)
       } catch { /* malformed */ }
