@@ -1,15 +1,24 @@
 /**
  * Agent client — connects to the agent server on port 8766.
- * Provides two channels:
- *   1. /decide  (HTTP POST, 200ms debounce) — planning decisions
- *   2. /stream  (SSE GET) — streaming commentary
+ *
+ * Channels
+ * --------
+ *   1. /decide       (HTTP POST, 200ms debounce) — LangChain planning decisions
+ *   2. /stream       (SSE GET)                  — streaming mission commentary
+ *   3. /terminal     (WebSocket)                — real-time LangChain callback
+ *                                                 events: LLM thoughts, tool
+ *                                                 calls, tool results, RAG hits
+ *   4. /mission/save (HTTP POST, fire-and-forget) — embed completed mission
+ *                                                   into Chroma RAG store
+ *   5. /feedback     (HTTP POST)               — UCB1 bandit reward signal
  */
-import type { AgentDecision, AgentCommentaryEntry, LiveFrame } from '../models/types'
+import type { AgentDecision, AgentCommentaryEntry, LiveFrame, TerminalEntryType } from '../models/types'
 
 export type AgentStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
 
 export class AgentClient {
   private baseUrl: string
+  private wsBase: string
   private status: AgentStatus = 'disconnected'
   private decideTimer: ReturnType<typeof setTimeout> | null = null
   private streamController: AbortController | null = null
@@ -18,6 +27,11 @@ export class AgentClient {
   private onStatus: (s: AgentStatus) => void
   private commentaryIdRef = 0
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null
+
+  // /terminal WebSocket
+  private terminalWs: WebSocket | null = null
+  private terminalReconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private onTerminalEvent: ((type: TerminalEntryType, text: string) => void) | null = null
 
   constructor(
     onDecision: (d: AgentDecision) => void,
@@ -29,6 +43,7 @@ export class AgentClient {
     this.onCommentary = onCommentary
     this.onStatus = onStatus
     this.baseUrl = baseUrl
+    this.wsBase = baseUrl.replace(/^http/, 'ws')
   }
 
   connect() {
@@ -149,6 +164,97 @@ export class AgentClient {
     this.streamController = null
   }
 
+  // ── /terminal WebSocket — LangChain callback stream ───────────────────────
+
+  /**
+   * Open the /terminal WebSocket and route incoming callback events to the
+   * drone terminal panel.  Events arrive as {events: [{type, text}]} batches
+   * every ~100ms while the agent server is running a decision.
+   *
+   * onEvent receives (type: TerminalEntryType, text: string) matching the
+   * existing pushTerminal() signature in liveInferenceEngine.
+   */
+  connectTerminalStream(onEvent: (type: TerminalEntryType, text: string) => void) {
+    this.onTerminalEvent = onEvent
+    this.openTerminalWs()
+  }
+
+  private openTerminalWs() {
+    if (this.status !== 'connected' || !this.onTerminalEvent) return
+    if (this.terminalWs && this.terminalWs.readyState <= WebSocket.OPEN) return
+
+    try {
+      const ws = new WebSocket(`${this.wsBase}/terminal`)
+      this.terminalWs = ws
+
+      ws.onopen = () => {
+        this.onTerminalEvent?.('agent', 'TERMINAL-WS  connected — LangChain callback stream active')
+      }
+
+      ws.onmessage = (evt) => {
+        try {
+          const data = JSON.parse(evt.data) as { events?: Array<{ type: string; text: string }> }
+          for (const ev of data.events ?? []) {
+            const entryType = ev.type as TerminalEntryType
+            this.onTerminalEvent?.(entryType, ev.text)
+          }
+        } catch { /* skip malformed */ }
+      }
+
+      ws.onclose = () => {
+        this.terminalWs = null
+        // Auto-reconnect every 3s while agent is connected
+        if (this.status === 'connected') {
+          this.terminalReconnectTimer = setTimeout(() => this.openTerminalWs(), 3000)
+        }
+      }
+
+      ws.onerror = () => {
+        ws.close()
+      }
+    } catch { /* WebSocket constructor can throw in some envs */ }
+  }
+
+  private closeTerminalWs() {
+    if (this.terminalReconnectTimer) {
+      clearTimeout(this.terminalReconnectTimer)
+      this.terminalReconnectTimer = null
+    }
+    if (this.terminalWs) {
+      this.terminalWs.onclose = null  // prevent reconnect loop
+      this.terminalWs.close()
+      this.terminalWs = null
+    }
+  }
+
+  // ── /mission/save — embed completed mission into Chroma RAG ───────────────
+
+  /**
+   * Fire-and-forget POST to /mission/save after each completed mission.
+   * The agent server embeds the event log + telemetry with all-MiniLM-L6-v2
+   * and stores it in the persistent Chroma collection so future /decide calls
+   * can retrieve similar past missions via similarity search.
+   */
+  async saveMission(frame: LiveFrame) {
+    if (this.status !== 'connected') return
+    try {
+      await fetch(`${this.baseUrl}/mission/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          events: frame.events,
+          telemetry: {
+            pollinatedIds: frame.pollinatedIds,
+            discoveredIds: frame.discoveredIds,
+            battery_pct:   frame.sensor.batteryPercent,
+            time:          frame.time,
+          },
+        }),
+        signal: AbortSignal.timeout(5000),
+      })
+    } catch { /* silently skip — agent server may be offline */ }
+  }
+
   /** Send pollination feedback to bandit endpoint */
   async sendFeedback(success: boolean, state: { phase: string; of_stability: number; battery_pct: number }) {
     if (this.status !== 'connected') return
@@ -164,8 +270,10 @@ export class AgentClient {
 
   disconnect() {
     this.stopCommentaryStream()
+    this.closeTerminalWs()
     if (this.decideTimer) clearTimeout(this.decideTimer)
     if (this.healthCheckInterval) clearInterval(this.healthCheckInterval)
+    this.onTerminalEvent = null
     this.setStatus('disconnected')
   }
 
@@ -173,6 +281,10 @@ export class AgentClient {
     if (this.status !== s) {
       this.status = s
       this.onStatus(s)
+      // Auto-open terminal WS once the server becomes reachable
+      if (s === 'connected' && this.onTerminalEvent) {
+        this.openTerminalWs()
+      }
     }
   }
 
