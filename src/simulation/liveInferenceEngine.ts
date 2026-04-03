@@ -167,6 +167,12 @@ export function useLiveInferenceEngine(): LiveInferenceState {
     // Stop the RAF loop once the navigator has fully landed
     if (nav.done) {
       rafRef.current = null
+      // Embed completed mission into Chroma RAG store so future /decide calls
+      // can retrieve it as context via similarity search.
+      if (agent) {
+        pushTerminal('agent', `MISSION-SAVE  embedding ${lf.pollinatedIds.length}/${lf.flowers.length} pollinated, ${lf.time.toFixed(0)}s into RAG store`)
+        agent.saveMission(lf)
+      }
       return
     }
     rafRef.current = requestAnimationFrame(tick)
@@ -195,6 +201,11 @@ export function useLiveInferenceEngine(): LiveInferenceState {
     const agent = new AgentClient(onAgentDecision, onAgentCommentary, onAgentStatus)
     agentRef.current = agent
     agent.connect()
+    // Wire LangChain callback stream → drone terminal panel.
+    // Once /health returns 200, openTerminalWs() is called automatically
+    // inside setStatus('connected') in AgentClient.
+    agent.connectTerminalStream(pushTerminal)
+    pushTerminal('sys', 'AGENT-CLIENT  connecting to :8766 — LangChain callback stream requested')
     lastPhaseRef.current = ''
     frameIdxRef.current  = 0
 
