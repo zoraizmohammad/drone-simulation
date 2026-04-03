@@ -9,47 +9,60 @@ An LLM agent (Claude Haiku via Anthropic SDK) provides real-time mission decisio
 ## Architecture Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Browser (Preact + TS)                     │
-│                                                             │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
-│  │  TopDownView │  │  SideView    │  │ TelemetryPanel   │  │
-│  │  (SVG garden)│  │ (alt chart)  │  │ (sensor HUD)     │  │
-│  └──────────────┘  └──────────────┘  └──────────────────┘  │
-│  ┌──────────────┐  ┌──────────────────────────────────────┐ │
-│  │  Camera      │  │  AgentCommentaryPanel                │ │
-│  │  Analysis    │  │  (AI MISSION ANALYST strip)          │ │
-│  └──────────────┘  └──────────────────────────────────────┘ │
-│                                                             │
-│  AutonomousNavigator ← liveInferenceEngine ← RAF loop       │
-│         ↑                      ↑                            │
-│    AgentClient            WsClient                          │
-│    (HTTP/SSE)             (WebSocket)                       │
-└────────────┬────────────────────┬───────────────────────────┘
-             │                    │
-    HTTP POST/GET/SSE         WebSocket
-             │                    │
-┌────────────▼───────┐  ┌─────────▼──────────────────────────┐
-│  Agent Server :8766 │  │  Inference Server :8765            │
-│  (FastAPI)          │  │  (FastAPI WebSocket)               │
-│                     │  │                                    │
-│  /decide            │  │  /inference — WS endpoint         │
-│   Claude Haiku      │  │   DetectionBridge:                 │
-│   tool_use loop     │  │     1. Google Coral TPU            │
-│                     │  │     2. ONNX CPU fallback           │
-│  Tools:             │  │     3. Physics mock                │
-│  - compute_tsp      │  │   scene_renderer.py               │
-│  - battery_range    │  │   TSP suggestion                   │
-│  - conf_threshold   │  └────────────────────────────────────┘
-│  - scan_pattern     │
-│                     │
-│  UCB1 Bandit        │
-│  (conf thresholds)  │
-│                     │
-│  /stream — SSE      │
-│  /feedback          │
-│  /health /metrics   │
-└─────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                      Browser (Preact + TS)                        │
+│                                                                  │
+│  ┌─────────────┐ ┌──────────────┐ ┌──────────────────────────┐  │
+│  │ TopDownView │ │  SideView    │ │    TelemetryPanel         │  │
+│  │ (SVG garden)│ │ (alt chart)  │ │ (sensor HUD + AI section) │  │
+│  └─────────────┘ └──────────────┘ └──────────────────────────┘  │
+│  ┌─────────────┐ ┌──────────────────────────────────────────┐   │
+│  │   Camera    │ │      AgentCommentaryPanel                │   │
+│  │  Analysis   │ │  (streaming commentary, decisions, RAG)  │   │
+│  └─────────────┘ └──────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  TerminalPanel  [SYS][PHASE][WS][INFER][NAV][AI]        │    │
+│  │  AI tab shows emerald LangChain callback events         │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                  │
+│  AutonomousNavigator ← liveInferenceEngine ← RAF 30fps loop      │
+│    applyAgentDecision()        ↑            ↑                    │
+│    currentConfidenceThreshold  │            │                    │
+│    scanSpacing                 │            │                    │
+│                         AgentClient    WsClient                  │
+│                     ┌── HTTP POST ──┐  (WebSocket)               │
+│                     │── SSE GET ────│                            │
+│                     │── WS /terminal│ ← LangChain callbacks      │
+│                     └── WS /agent ──┘                            │
+└────────────┬─────────────────────────┬───────────────────────────┘
+             │                         │
+   :8766 HTTP/SSE/WS              :8765 WebSocket
+             │                         │
+┌────────────▼──────────────┐  ┌───────▼────────────────────────┐
+│  Agent Server :8766        │  │  Inference Server :8765        │
+│  FastAPI + LangChain       │  │  FastAPI WebSocket             │
+│                            │  │                                │
+│  /decide — ChatAnthropic   │  │  /inference                   │
+│   bind_tools() + callbacks │  │   DetectionBridge:             │
+│   RAG context injected     │  │     1. Coral TPU               │
+│   max 3 tool rounds        │  │     2. ONNX CPU                │
+│                            │  │     3. Physics mock            │
+│  LangChain Tools:          │  │   scene_renderer.py           │
+│  - compute_tsp_route       │  └────────────────────────────────┘
+│  - estimate_battery_range  │
+│  - recommend_conf_thresh   │  ┌────────────────────────────────┐
+│  - plan_scan_pattern       │  │  Chroma RAG Store              │
+│                            │  │  (drone-cv-system/             │
+│  DroneTerminalCallback     │  │   mission_history/)            │
+│   BaseCallbackHandler      │  │                                │
+│   → /terminal WS queue     │  │  all-MiniLM-L6-v2 embeddings  │
+│                            │  │  (local CPU, no API key)       │
+│  UCB1 ConfidenceBandit     │  │                                │
+│  /stream SSE commentary    │  │  save: POST /mission/save      │
+│  /feedback bandit reward   │  │  query: before each /decide    │
+│  /mission/save → Chroma    │  └────────────────────────────────┘
+│  /health /metrics          │
+└────────────────────────────┘
 ```
 
 ---
@@ -72,12 +85,13 @@ An LLM agent (Claude Haiku via Anthropic SDK) provides real-time mission decisio
 - EKF confidence, rangefinder, sonar, battery degradation
 
 ### AI / Agentic System
-- **Claude Haiku** via Anthropic SDK (no LangChain dependency)
-- Tool-calling loop (max 3 rounds): TSP route, battery range, confidence threshold, scan pattern
-- UCB1 contextual bandit with 3 arms × 12 context buckets for adaptive thresholds
-- SSE streaming commentary — 1-2 sentence technical narration on phase transitions
-- Closed-loop reward: pollination events POST `/feedback` to update bandit
-- Graceful degradation: mock decisions when `ANTHROPIC_API_KEY` unset or server down
+- **Claude Haiku** via **LangChain `ChatAnthropic`** — `bind_tools()` + structured tool-calling loop (max 3 rounds)
+- **LangChain `BaseCallbackHandler`** — `DroneTerminalCallbackHandler` intercepts every LLM thought, tool invocation, and tool result. Events stream in real time to the drone terminal panel over a dedicated `/terminal` WebSocket — visible as emerald **AI** entries
+- **Chroma RAG** — completed missions embedded with `sentence-transformers/all-MiniLM-L6-v2` (local CPU, no API key) into a persistent Chroma collection. Top-3 similar past missions injected into the Claude system prompt before each `/decide` call, giving the agent narrative memory across sessions
+- **UCB1 contextual bandit** (`confidence_bandit.py`) — 3 threshold arms × 12 context buckets (phase × sensor quality × battery tier) for adaptive detection confidence
+- **SSE streaming commentary** — 1-2 sentence technical narration on every phase transition
+- **Closed-loop feedback** — pollination events POST `/feedback` to update bandit; completed missions POST `/mission/save` to extend the RAG store
+- **Graceful degradation** — mock decisions when `ANTHROPIC_API_KEY` unset; all agent features silently disabled when server unreachable
 
 ---
 
@@ -133,19 +147,50 @@ WebSocket endpoint `/inference`. Receives drone state + flower positions, render
 
 | Endpoint | Description |
 |---|---|
-| `POST /decide` | LLM planning decision with tool_use loop |
+| `POST /decide` | LangChain ChatAnthropic + tool loop, RAG context injected |
 | `GET /stream` | SSE streaming mission commentary |
 | `WS /agent` | WebSocket mirror of /decide |
-| `GET /health` | Server status + API key check |
-| `GET /metrics` | Decisions, overrides, avg latency, bandit stats |
+| `WS /terminal` | Real-time LangChain callback events → drone terminal |
+| `GET /health` | Server status, LangChain/RAG/bandit availability |
+| `GET /metrics` | Decisions, overrides, avg latency, bandit stats, RAG count |
 | `GET /decisions/recent` | Last 10 decisions with reasoning |
 | `POST /feedback` | Reward signal for UCB1 bandit |
+| `POST /mission/save` | Embed completed mission into Chroma RAG store |
 
-**Tool implementations (called locally when Claude uses tool_use):**
-- `compute_tsp_route` — greedy nearest-neighbor with confidence weighting
-- `estimate_battery_range` — formula: `reachable = (battery - 20) / (8 + dist * 0.5)`
-- `recommend_confidence_threshold` — delegates to UCB1 bandit
-- `plan_scan_pattern` — adaptive spacing: 3.5m (dense) / 4.5m (default) / 5.5m (sparse)
+**LangChain integration:**
+The `/decide` endpoint uses `langchain_anthropic.ChatAnthropic` with `.bind_tools()`, so tool calls are expressed as LangChain `ToolCall` objects on the `AIMessage`. A `DroneTerminalCallbackHandler` (subclass of `langchain_core.callbacks.BaseCallbackHandler`) is passed in `config={"callbacks": [...]}` on every `invoke()` call. It fires on `on_chat_model_start`, `on_llm_end`, `on_tool_start`, `on_tool_end`, and `on_agent_finish` — queuing events that the `/terminal` WebSocket drains every 100ms.
+
+**RAG pipeline:**
+Before each `/decide` call, a semantic query is built from the current phase, battery, and sensor state. `MissionStore.retrieve_context()` embeds the query with `all-MiniLM-L6-v2` and performs cosine similarity search against the Chroma collection. The top-3 matching past missions are appended to the Claude system prompt as "Relevant past mission experiences", giving the agent cross-session memory without any API calls for retrieval.
+
+**Tool implementations:**
+- `compute_tsp_route` — greedy nearest-neighbor with optional confidence/distance weighting
+- `estimate_battery_range` — formula: `reachable = (battery − 20) / (8 + dist × 0.5)`
+- `recommend_confidence_threshold` — delegates to UCB1 bandit or heuristic fallback
+- `plan_scan_pattern` — spacing 3.5m (density >3) / 4.5m (default) / 5.5m (none found)
+
+### LangChain Callback Handler (`drone_callback.py`)
+`DroneTerminalCallbackHandler(BaseCallbackHandler)` — thread-safe event accumulator.
+
+Hooks implemented:
+| Hook | Terminal type | Content |
+|---|---|---|
+| `on_chat_model_start` | `agent` (emerald) | LLM call preview |
+| `on_llm_end` | `agent` | Final reasoning/decision text |
+| `on_tool_start` | `tsp` / `detect` | Tool name + truncated input |
+| `on_tool_end` | `ws-in` | Tool result (truncated) |
+| `on_agent_finish` | `agent` | AgentExecutor final output |
+| `on_llm_error` / `on_tool_error` | `error` | Error message |
+
+### RAG Mission Store (`mission_store.py`)
+`MissionStore` wraps `langchain_community.vectorstores.Chroma` + `HuggingFaceEmbeddings`.
+
+- **Model**: `sentence-transformers/all-MiniLM-L6-v2` — 384-dim, ~90MB, runs on CPU
+- **Persistence**: `drone-cv-system/mission_history/` — survives server restarts
+- **Document format**: prose summary — outcome, duration, battery, phase sequence, key events
+- **Metadata**: pollinated count, discovered count, battery_final, duration_s
+- **Retrieval**: `similarity_search(query, k=3)` — cosine similarity over 384-dim embeddings
+- **Graceful degradation**: `available=False` when deps missing; all methods are no-ops
 
 ### Confidence Bandit (`confidence_bandit.py`)
 UCB1 multi-armed bandit with context buckets:
@@ -153,7 +198,7 @@ UCB1 multi-armed bandit with context buckets:
 - Sensor quality tier: high / medium / low (by optical flow stability)
 - Battery tier: high (≥50%) / low (<50%)
 
-3 threshold arms per context: 0.40, 0.60, 0.75. Reward: +1 on pollination, -1 on abort.
+3 threshold arms per context: 0.40, 0.60, 0.75. Reward: +1 on pollination, −1 on abort.
 
 ---
 
@@ -261,8 +306,10 @@ pip install pycoral tflite-runtime
 | Rendering | Pure SVG (no canvas/WebGL), CSS animations |
 | State | Preact hooks — no external state library |
 | Backend inference | FastAPI, uvicorn, WebSocket |
-| Backend agent | FastAPI, Anthropic SDK (claude-haiku-4-5-20251001) |
+| Backend agent | FastAPI, **LangChain** (`langchain-anthropic`, `langchain-core`), Claude claude-haiku-4-5-20251001 |
+| LangChain callbacks | `BaseCallbackHandler` → `/terminal` WS → frontend terminal panel |
+| RAG | **Chroma** vector store, `sentence-transformers/all-MiniLM-L6-v2`, `langchain-community` |
 | Computer vision | ONNX Runtime, Google Coral pycoral, YOLOv8 |
 | Bandit | UCB1 (custom Python, no ML framework) |
-| Streaming | Server-Sent Events (SSE) |
+| Streaming | Server-Sent Events (SSE) + WebSocket |
 | Hardware | Raspberry Pi 4, Pixhawk 6, Google Coral USB TPU |
