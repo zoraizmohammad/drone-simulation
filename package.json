@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start-inference-server": "python3 drone-cv-system/server/inference_server.py",
+    "start-agent-server": "python3 drone-cv-system/server/agent_server.py",
+    "start-servers": "bash drone-cv-system/server/start_servers.sh"
   },
   "dependencies": {
     "preact": "^10.19.6"
