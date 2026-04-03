@@ -1,6 +1,7 @@
 import type {
   DroneState, SensorState, LiveFlower, LiveFrame,
   LivePhase, InferenceResult, EventLogEntry, TerminalLogFn,
+  AgentDecision,
 } from '../models/types'
 import {
   generateRandomGarden, generateLawnmowerPath, computeTSPRoute,
@@ -55,6 +56,10 @@ export class AutonomousNavigator {
   private lastInference: InferenceResult | null = null
   private onTermLog: TerminalLogFn | null = null
   done = false
+  /** Dynamic confidence threshold — can be updated by agent decisions */
+  currentConfidenceThreshold = 0.75
+  /** Adaptive scan spacing — can be updated by agent decisions */
+  private scanSpacing = 4.5
 
   /** Wire up the terminal logger — called once by liveInferenceEngine after construction */
   setTerminalCallback(fn: TerminalLogFn) { this.onTermLog = fn }
@@ -287,6 +292,30 @@ export class AutonomousNavigator {
     return this.flowers.find(f => f.id === this.tspRoute[this.tspIdx]) ?? null
   }
 
+  /** Apply an agent planning decision — override TSP route and/or altitude */
+  applyAgentDecision(decision: AgentDecision) {
+    if (decision.priorityOverride.length > 0 && !this.planningComplete) {
+      const validIds = decision.priorityOverride.filter(id =>
+        this.discoveredIds.includes(id) && !this.pollinatedIds.includes(id),
+      )
+      if (validIds.length > 0) {
+        this.tspRoute = validIds
+        this.tlog('tsp', `AGENT-OVERRIDE  route=[${validIds.join(' → ')}]  reason: ${decision.reasoning.slice(0, 80)}`)
+      }
+    }
+    if (decision.altitudeOverride !== null) {
+      this.tlog('nav', `AGENT-ALT  requested=${decision.altitudeOverride}m  current=${this.z.toFixed(1)}m`)
+    }
+    if (decision.scanSpacing !== null) {
+      this.scanSpacing = decision.scanSpacing
+      this.tlog('nav', `AGENT-SCAN  spacing=${decision.scanSpacing}m`)
+    }
+    if (decision.confidenceThreshold) {
+      this.currentConfidenceThreshold = decision.confidenceThreshold
+      this.tlog('nav', `AGENT-CONF  threshold=${(decision.confidenceThreshold * 100).toFixed(0)}%`)
+    }
+  }
+
   private processInference(inf: InferenceResult) {
     const targetPhases: LivePhase[] = ['approach', 'descent', 'hover_align']
     let newDiscovery = false
@@ -302,7 +331,7 @@ export class AutonomousNavigator {
       if (f && f.state !== 'pollinated') {
         f.confidence = det.confidence
         if (targetPhases.includes(this.phase) && det.id === this.tspRoute[this.tspIdx]) {
-          if (det.confidence >= 0.75) this.updateFlowerState(det.id, 'locked')
+          if (det.confidence >= this.currentConfidenceThreshold) this.updateFlowerState(det.id, 'locked')
           else if (det.confidence >= 0.40) this.updateFlowerState(det.id, 'candidate')
           else this.updateFlowerState(det.id, 'scanned')
         }
