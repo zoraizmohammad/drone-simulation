@@ -12,6 +12,7 @@ const TYPE_COLOR: Record<TerminalEntryType, string> = {
   'tsp':    '#f59e0b',
   'nav':    '#94a3b8',
   'error':  '#f87171',
+  'agent':  '#34d399',
 }
 
 const TYPE_LABEL: Record<TerminalEntryType, string> = {
@@ -23,17 +24,19 @@ const TYPE_LABEL: Record<TerminalEntryType, string> = {
   'tsp':    'TSP  ',
   'nav':    'NAV  ',
   'error':  'ERR  ',
+  'agent':  'AI   ',
 }
 
 // ── Filter config ────────────────────────────────────────────────────────────
 
-type FilterMode = 'ALL' | 'WS' | 'INFER' | 'NAV'
+type FilterMode = 'ALL' | 'WS' | 'INFER' | 'NAV' | 'AI'
 
 const FILTER_TYPES: Record<FilterMode, TerminalEntryType[] | null> = {
   ALL:   null,
   WS:    ['ws-out', 'ws-in', 'sys', 'error'],
   INFER: ['detect', 'tsp'],
   NAV:   ['phase', 'nav'],
+  AI:    ['agent'],
 }
 
 // ── Row sub-component ────────────────────────────────────────────────────────
@@ -192,7 +195,7 @@ export function TerminalPanel({ entries, onClose }: Props) {
         <div style={{ flex: 1 }} />
 
         {/* Filter buttons */}
-        {(['ALL', 'WS', 'INFER', 'NAV'] as FilterMode[]).map(f => (
+        {(['ALL', 'WS', 'INFER', 'NAV', 'AI'] as FilterMode[]).map(f => (
           <button key={f} onClick={() => setFilter(f)} style={filterBtn(f)}>{f}</button>
         ))}
 
