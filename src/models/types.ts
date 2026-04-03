@@ -151,6 +151,7 @@ export type TerminalEntryType =
   | 'tsp'     // amber   — TSP route planning updates
   | 'nav'     // gray    — proximity detection / navigation
   | 'error'   // red     — connection errors
+  | 'agent'   // emerald — LangChain LLM thoughts, tool calls, RAG hits
 
 export interface TerminalEntry {
   id: number
