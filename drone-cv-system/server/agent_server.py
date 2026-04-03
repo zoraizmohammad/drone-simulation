@@ -494,22 +494,40 @@ async def stream_commentary(
         phase_meanings = {
             "scanning": "performing lawnmower scan pattern to detect flowers",
             "planning": "computing optimal TSP route for discovered flowers",
-            "approach": "flying toward target flower cluster",
-            "descent": "descending from patrol altitude to hover altitude",
-            "hover_align": "precision hover alignment above target",
-            "pollinating": "pollination mechanism active — depositing pollen",
-            "ascent": "climbing back to patrol altitude after pollination",
-            "resume": "resuming transit to next flower target",
-            "mission_complete": "all targets visited — returning to base",
+            "approach": "flying toward target flower cluster at patrol altitude",
+            "descent": "descending from 8m patrol altitude to 1.5m hover altitude",
+            "hover_align": "precision hover alignment above target — EKF lock active",
+            "pollinating": "pollination mechanism active — vibrating pollen brush contacts flower",
+            "ascent": "climbing back to 8m patrol altitude post-pollination",
+            "resume": "resuming transit to next flower target in TSP route",
+            "mission_complete": "all targets visited — returning to home base",
+            "arming": "pre-flight checks and motor arm sequence",
+            "takeoff": "climbing from ground to 8m patrol altitude",
+            "landing": "final descent to ground — mission ending",
         }
         phase_meaning = phase_meanings.get(phase, phase)
 
+        bat_f = float(battery)
+        stab_f = float(of_stability)
+        bat_interp = (
+            "battery healthy" if bat_f > 70
+            else "battery moderate — monitoring range" if bat_f > 40
+            else "battery LOW — efficiency critical"
+        )
+        stab_interp = (
+            "optical flow stable — high sensor confidence" if stab_f > 0.7
+            else "moderate optical flow — some sensor noise" if stab_f > 0.4
+            else "optical flow degraded — reduced detection confidence"
+        )
+        on_track = int(pollinated) > 0 or int(discovered) > int(int(total) // 2)
+        track_str = "mission progressing well" if on_track else "early mission — establishing coverage"
+
         user_msg = (
             f"Drone state: phase={phase} ({phase_meaning}), altitude={altitude}m, "
-            f"battery={battery}%, optical flow stability={of_stability}, "
+            f"{bat_interp} ({battery}%), {stab_interp} (stability={of_stability}), "
             f"discovered={discovered}/{total} flowers, pollinated={pollinated}/{total}, "
-            f"current target={target or 'none'}. "
-            "Narrate this moment in 1-2 sentences."
+            f"current target={target or 'none'}, {track_str}. "
+            "Narrate this mission moment in 1-2 sentences. Be technical and specific."
         )
 
         try:
