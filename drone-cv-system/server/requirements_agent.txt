@@ -3,3 +3,13 @@ fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
 python-dotenv>=1.0.0
 sse-starlette>=1.8.0
+
+# LangChain — callback system, RAG, model wrappers
+langchain>=0.2.0
+langchain-core>=0.2.0
+langchain-anthropic>=0.1.15
+langchain-community>=0.2.0
+
+# RAG vector store + local embeddings (no API key required)
+chromadb>=0.5.0
+sentence-transformers>=3.0.0
