@@ -70,7 +70,7 @@ export class AutonomousNavigator {
 
   constructor(seed?: number) {
     this.flowers = generateRandomGarden(seed)
-    this.lawnmower = generateLawnmowerPath()
+    this.lawnmower = generateLawnmowerPath(this.scanSpacing)
   }
 
   getFlowers() { return this.flowers }
@@ -306,9 +306,10 @@ export class AutonomousNavigator {
     if (decision.altitudeOverride !== null) {
       this.tlog('nav', `AGENT-ALT  requested=${decision.altitudeOverride}m  current=${this.z.toFixed(1)}m`)
     }
-    if (decision.scanSpacing !== null) {
+    if (decision.scanSpacing !== null && !this.scanComplete) {
       this.scanSpacing = decision.scanSpacing
-      this.tlog('nav', `AGENT-SCAN  spacing=${decision.scanSpacing}m`)
+      this.lawnmower = generateLawnmowerPath(decision.scanSpacing)
+      this.tlog('nav', `AGENT-SCAN  spacing=${decision.scanSpacing}m  regenerated ${this.lawnmower.length} waypoints`)
     }
     if (decision.confidenceThreshold) {
       this.currentConfidenceThreshold = decision.confidenceThreshold
