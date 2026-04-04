@@ -36,27 +36,27 @@ The two halves share identical mission logic, sensor models, and TSP path-planni
 ## Architecture Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                          Browser — Preact + TypeScript                    │
-│                                                                          │
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          Browser — Preact + TypeScript                  │
+│                                                                         │
 │  ┌──────────────────┐  ┌────────────────┐  ┌──────────────────────────┐ │
 │  │  TopDownView     │  │  SideView      │  │  TelemetryPanel          │ │
 │  │  SVG 20×20m      │  │  altitude      │  │  sensor HUD + AI section │ │
 │  │  garden, drone   │  │  cross-section │  │  EKF, OF, battery, CV    │ │
 │  │  trail, TSP+AI   │  │  sparkline     │  │  decisions, overrides    │ │
 │  │  route overlays  │  └────────────────┘  └──────────────────────────┘ │
-│  └──────────────────┘                                                    │
+│  └──────────────────┘                                                   │
 │  ┌──────────────────┐  ┌──────────────────────────────────────────────┐ │
 │  │  CameraAnalysis  │  │  AgentCommentaryPanel                        │ │
 │  │  layered SVG     │  │  streaming commentary, decision badge,       │ │
 │  │  reticle, heatmap│  │  confidence gauge, decision history          │ │
 │  │  flow vectors    │  └──────────────────────────────────────────────┘ │
-│  └──────────────────┘                                                    │
-│  ┌─────────────────────────────────────────────────────────────────────┐ │
-│  │  TerminalPanel   [SYS] [PHASE] [→WS] [←WS] [DET] [TSP] [NAV] [AI] │ │
-│  │  real-time color-coded flight log — AI tab shows LangChain events  │ │
-│  └─────────────────────────────────────────────────────────────────────┘ │
-│                                                                          │
+│  └──────────────────┘                                                   │
+│  ┌─────────────────────────────────────────────────────────────────────┐│
+│  │  TerminalPanel   [SYS] [PHASE] [→WS] [←WS] [DET] [TSP] [NAV] [AI]   ││
+│  │  real-time color-coded flight log — AI tab shows LangChain events   ││
+│  └─────────────────────────────────────────────────────────────────────┘│
+│                                                                         │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │  liveInferenceEngine  (requestAnimationFrame loop, 30 fps)       │   │
 │  │   ├─ AutonomousNavigator  ←── applyAgentDecision()               │   │
@@ -68,7 +68,7 @@ The two halves share identical mission logic, sensor models, and TSP path-planni
 │  │       ├─ WS  /terminal   (LangChain callback drain, 100ms tick)  │   │
 │  │       └─ POST /mission/save (fire-and-forget on nav.done)        │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
-└──────────────┬──────────────────────────────┬────────────────────────────┘
+└──────────────┬──────────────────────────────┬───────────────────────────┘
                │                              │
      :8766 HTTP/SSE/WS                  :8765 WebSocket
                │                              │
@@ -77,15 +77,15 @@ The two halves share identical mission logic, sensor models, and TSP path-planni
 │  agent_server.py          │  │  inference_server.py                   │
 │  FastAPI + LangChain      │  │  FastAPI WebSocket                     │
 │                           │  │                                        │
-│  POST /decide             │  │  WS /inference                        │
+│  POST /decide             │  │  WS /inference                         │
 │    ChatAnthropic          │  │    ① receive drone + flowers JSON      │
 │    .bind_tools()          │  │    ② scene_renderer.py → 640×640 frame │
 │    RAG context injected   │  │    ③ DetectionBridge.detect()          │
-│    max 3 tool rounds      │  │       Coral TPU → ONNX → mock          │
+│    max 3 tool rounds      │  │       Coral TPU → ONNX → mock           |
 │    callbacks attached     │  │    ④ _compute_tsp_suggestion()         │
 │                           │  │    ⑤ _phase_suggestion()               │
-│  LangChain Tools:         │  │    ⑥ return detections + TSP + phase  │
-│  - compute_tsp_route      │  └────────────────────────────────────────┘
+│  LangChain Tools:         │  │    ⑥ return detections + TSP + phase   │
+│  - compute_tsp_route      │  └─────────────────────────────────────────┘
 │  - estimate_battery_range │
 │  - recommend_conf_thresh  │  ┌────────────────────────────────────────┐
 │  - plan_scan_pattern      │  │  Chroma RAG Store                      │
