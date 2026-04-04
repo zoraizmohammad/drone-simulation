@@ -140,128 +140,64 @@ The `LiveFrame` is adapted to a `ReplayFrame` shape via `liveToReplay()` in `App
 ## Frontend — Source Layout
 
 ```
-src/
-├── app/
-│   ├── App.tsx              Root. Mode switch, liveToReplay adapter, AppShell,
-│   │                        FourPanels, BottomBar. Phase color maps.
-│   └── ModeSelector.tsx     Landing screen with REPLAY / LIVE cards.
-│
-├── components/
-│   ├── TopDownView/
-│   │   └── TopDownView.tsx  SVG 20×20m garden. Renders flower clusters (organic
-│   │                        SVG petals with seeded RNG), drone body with rotor
-│   │                        spin animation, motion trail polyline, TSP route
-│   │                        lines, waypoint markers. In live mode: purple dashed
-│   │                        AI route overlay when agent.lastDecision has
-│   │                        priorityOverride. Home base marker at (2,2).
-│   │
-│   ├── SideView/
-│   │   └── SideView.tsx     SVG altitude cross-section. Polyline from
-│   │                        altitudeHistory, drone silhouette at current Z.
-│   │                        Phase-colored altitude band markers. Grid lines.
-│   │
-│   ├── TelemetryPanel/
-│   │   └── TelemetryPanel.tsx  Engineering HUD. Organized sections:
-│   │                           NAVIGATION (x,y,z,speed,yaw), OPTICAL FLOW
-│   │                           (quality,stability,vx/vy,strength,precision),
-│   │                           RANGEFINDER, EKF CONFIDENCE, BATTERY, SIGNAL,
-│   │                           CV DETECTION (confidence bar, target ID),
-│   │                           MISSION STATE (phase, pollinated/total).
-│   │                           In live mode: AI AGENT section showing connection
-│   │                           status, decisions total, overrides, latency,
-│   │                           current confidence threshold, last action.
-│   │
-│   ├── ZoomPanel/
-│   │   └── ZoomPanel.tsx    Thin wrapper. Passes frame + livePng (base64 JPEG
-│   │                        from inference server) to CameraAnalysisPanel.
-│   │
-│   ├── AgentPanel/
-│   │   └── AgentCommentaryPanel.tsx  AI Mission Analyst strip. Connection dot
-│   │                                 (emerald = connected, amber = connecting,
-│   │                                 red = error). Streaming commentary text with
-│   │                                 typewriter cursor while SSE is active.
-│   │                                 Decision badge (action color-coded). Dynamic
-│   │                                 confidence gauge bar. Stats row (N decisions,
-│   │                                 N overrides, Xms). Rolling 5-entry history
-│   │                                 that fades older entries.
-│   │
-│   ├── camera-analysis/
-│   │   ├── types.ts          AnalysisFrame, FlowerRenderState, FrustumState
-│   │   ├── CameraAnalysisPanel.tsx   Entry point. Calls computeAnalysisFrame()
-│   │   │                             to transform ReplayFrame → AnalysisFrame.
-│   │   ├── CameraAnalysisScene.tsx   SVG compositor (800×500 viewBox). Assembles
-│   │   │                             all sub-layers. Applies jitter when OF quality
-│   │   │                             < 50, motion blur filter when |velocity| > 1
-│   │   │                             m/s, cyan hover glow at stability > 0.7 + alt
-│   │   │                             < 3m, red vignette at stability < 0.4.
-│   │   ├── FlowerClusterRenderer.tsx Organic SVG flowers per cluster. Seeded RNG
-│   │   │                             per flower ID controls petal angle, size,
-│   │   │                             stem curve, leaf position. State rings:
-│   │   │                             unscanned=dark, discovered=amber, locked=cyan,
-│   │   │                             pollinated=green pulse.
-│   │   ├── DetectionReticle.tsx      Corner bracket reticle + crosshair + center
-│   │   │                             dot. Tightness 0→1 drives bracket inward.
-│   │   ├── DetectionHeatmap.tsx      Radial gradient confidence blobs per flower.
-│   │   │                             qualityIntensity scales opacity by OF quality.
-│   │   │                             of-heatmap-pulse CSS breathing animation.
-│   │   ├── FlowVectorOverlay.tsx     Grid flow field lines + primary velocity arrow
-│   │   │                             + arrowhead. Cyan (stable), amber (moderate),
-│   │   │                             red (degraded). of-vector-stable / unstable
-│   │   │                             shimmer animations.
-│   │   ├── OpticalFlowHud.tsx        Top-right translucent panel: DIST (in),
-│   │   │                             SENSOR (mm), FLOW X/Y, QUALITY, STRENGTH,
-│   │   │                             PRECISION, STABILITY bar gauge.
-│   │   ├── PollinationEffect.tsx     Orbiting sparkle particles + expanding pulse
-│   │   │                             rings during pollinating phase.
-│   │   ├── MissionPhaseOverlay.tsx   Phase-specific SVG banners (all 13 phases).
-│   │   └── AnalysisHud.tsx           Bottom strip: phase chip, confidence bar
-│   │                                 with tick marks, sparkline of last 50 samples,
-│   │                                 lock/pollination indicators.
-│   │
-│   ├── LiveStatus/
-│   │   └── LiveStatus.tsx   Header right section in live mode. WS status dot,
-│   │                        inference mode badge (CORAL/ONNX/MOCK), inference
-│   │                        latency, agent status dot, RESTART / EXIT buttons,
-│   │                        TERMINAL toggle.
-│   │
-│   ├── ReplayControls/
-│   │   └── ReplayControls.tsx  Play/pause/reset, 1×/2×/4× speed, scrubber bar
-│   │                           with click-to-seek.
-│   │
-│   └── TerminalPanel/
-│       └── TerminalPanel.tsx  Fixed bottom overlay (42vh). Color-coded log with
-│                              9 entry types. Filter tabs: ALL / WS / INFER / NAV
-│                              / AI. Auto-scroll with FOLLOW toggle. CLEAR button.
-│                              AI tab isolates emerald LangChain callback entries.
-│
-├── simulation/
-│   ├── replayEngine.ts        useReplayEngine hook (described above).
-│   ├── liveInferenceEngine.ts useLiveInferenceEngine hook. Owns all live state:
-│   │                          navigator, wsClient, agentClient, RAF loop,
-│   │                          terminal buffer (synced to state every 250ms).
-│   ├── autonomousNavigator.ts AutonomousNavigator class (described below).
-│   ├── agentClient.ts         AgentClient class (described below).
-│   ├── wsClient.ts            WsClient. Connects to :8765, sends JSON every tick,
-│   │                          receives InferenceResult, debounces sends to 100ms.
-│   ├── opticalFlowModel.ts    computeOpticalFlowState(). Physics model.
-│   └── sensorInterpolation.ts getSensorAtDistance(). Binary search + smooth-step.
-│
-├── data/
-│   ├── missionGenerator.ts    getMissionFrames() — generates 2700 ReplayFrames.
-│   │                          Exports FLOWER_CLUSTERS, WAYPOINTS constants.
-│   ├── randomMissionGenerator.ts  generateRandomGarden(seed), generateLawnmowerPath(spacing),
-│   │                              computeTSPRoute() — used by live mode.
-│   ├── opticalFlowDataset.ts  getFullOpticalFlowDataset() — merges real + synthetic rows.
-│   └── loadOpticalFlowCSV.ts  Raw CSV parser. OpticalFlowSample type.
-│
-├── models/
-│   └── types.ts               All TypeScript interfaces (see Types Reference below).
-│
-└── styles/
-    └── globals.css            Tailwind base + keyframe animations:
-                               of-heatmap-pulse, of-vector-stable, of-vector-unstable,
-                               of-flicker, of-stabilize, agent-cursor, agent-connected,
-                               agent-text-new, rotor spin animations.
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                        BROWSER  (Web Simulator)                           ║
+║                                                                           ║
+║   MODE 1 — Replay                    MODE 2 — Live Inference              ║
+║   ─────────────────                  ─────────────────────────            ║
+║   missionGenerator.ts                randomMissionGenerator.ts            ║
+║   (2700 ReplayFrames,                (random garden, 6–10 flowers,        ║
+║    seeded PRNG, 30 fps)               lawnmower scan, seeded PRNG)        ║
+║         ↓                                      ↓                          ║
+║   useReplayEngine                    useLiveInferenceEngine               ║
+║   (RAF loop, seek,                   (RAF loop, AutonomousNavigator,      ║
+║    speed multiplier)                  WsClient, terminal buffer)          ║
+║         ↓                                      ↓                          ║
+║   ┌─────────────────── liveToReplay() adapter ─────────────────┐          ║
+║   │           4 SVG Panels (shared between both modes)          │         ║
+║   │   TopDownView · SideView · TelemetryPanel · CameraAnalysis  │         ║
+║   └──────────────────────────────────────────────────────────── ┘         ║
+║                               TerminalPanel (Mode 2 only)                 ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+                      ↕  WebSocket  ws://localhost:8765/inference
+╔═══════════════════════════════════════════════════════════════════════════╗
+║               Python Inference Server  (localhost / same machine)         ║
+║                                                                           ║
+║   FastAPI + uvicorn WebSocket endpoint                                    ║
+║         ↓                                                                 ║
+║   scene_renderer.py  →  PIL 640×640 photorealistic frame                  ║
+║         ↓                                                                 ║
+║   DetectionBridge                                                         ║
+║     ├─ CoralBridge   →  Google Coral USB TPU (_edgetpu.tflite)            ║
+║     ├─ OnnxDetector  →  YOLOv8n ONNX CPU  →  bbox parse  →  geo-match     ║
+║     └─ MockDetector  →  physics confidence (altitude + distance)          ║
+║         ↓                                                                 ║
+║   Planning Agent (_compute_tsp_suggestion)  →  TSP route                  ║
+║         ↓                                                                 ║
+║   JSON response  {detections, phaseSuggestion, tspSuggestion, framePng}   ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                 Real Drone CV System  (Raspberry Pi 4)                    ║
+║                                                                           ║
+║   RPi Camera v2 (CSI)                                                     ║
+║         ↓                                                                 ║
+║   FramePreprocessor  →  640×640 RGB normalized tensor                     ║
+║         ↓                                                                 ║
+║   FlowerDetector (YOLOv8n ONNX, ONNX Runtime)                             ║
+║         ↓                                                                 ║
+║   OpticalFlowTracker (Lucas-Kanade, EMA smoothing)                        ║
+║         ↓                                                                 ║
+║   DepthEstimator  (bbox size + altitude fusion)                           ║
+║         ↓                                                                 ║
+║   StateMachine (13 phases, 20 Hz tick loop)                               ║
+║         ↓                                                                 ║
+║   FlightController  ──→  MAVLinkInterface  ──→  Pixhawk 2.4.8             ║
+║         ↓                        ↑                                        ║
+║   PollinationManager          Telemetry stream (ATTITUDE, GPS,            ║
+║   (MAVLink AUX OUT 1          OPTICAL_FLOW_RAD, EKF_STATUS, …)            ║
+║    → pollen-dispenser servo)                                              ║
+╚═══════════════════════════════════════════════════════════════════════════╝
 ```
 
 ---
