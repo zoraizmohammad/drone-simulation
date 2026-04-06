@@ -133,6 +133,7 @@ export interface LiveFrame {
   altitudeHistory: Array<{ time: number; z: number }>
   events: EventLogEntry[]
   time: number
+  agent?: AgentState
 }
 
 export interface EventLogEntry {
@@ -150,6 +151,7 @@ export type TerminalEntryType =
   | 'tsp'     // amber   — TSP route planning updates
   | 'nav'     // gray    — proximity detection / navigation
   | 'error'   // red     — connection errors
+  | 'agent'   // emerald — LangChain LLM thoughts, tool calls, RAG hits
 
 export interface TerminalEntry {
   id: number
@@ -161,6 +163,34 @@ export interface TerminalEntry {
 /** Callback signature shared by WsClient and AutonomousNavigator */
 export type TerminalLogFn = (type: TerminalEntryType, text: string, ts?: number) => void
 
+export interface AgentDecision {
+  action: 'continue' | 'replan' | 'abort_target' | 'adjust_altitude' | 'adjust_scan'
+  reasoning: string
+  priorityOverride: string[]
+  altitudeOverride: number | null
+  confidenceThreshold: number
+  scanSpacing: number | null
+  decisionMs: number
+  modelUsed: string
+}
+
+export interface AgentCommentaryEntry {
+  id: number
+  ts: number
+  text: string
+  phase: string
+  streaming: boolean
+}
+
+export interface AgentState {
+  isConnected: boolean
+  lastDecision: AgentDecision | null
+  commentary: AgentCommentaryEntry[]
+  agentMs: number
+  decisionsTotal: number
+  overridesApplied: number
+}
+
 export interface ReplayFrame {
   time: number; // seconds from mission start
   drone: DroneState;
@@ -170,3 +200,6 @@ export interface ReplayFrame {
   flowers: FlowerCluster[]; // state of each flower at this frame
   events: EventLogEntry[];  // events that fired at this exact frame
 }
+
+// Augment LiveFrame with optional agent state
+

@@ -217,7 +217,8 @@ async def health() -> dict[str, Any]:
         'status': 'ok',
         'inference_mode': bridge.mode,
         'pil_available': PIL_AVAILABLE,
-        'model_path': MODEL_PATH if os.path.exists(MODEL_PATH) else None,
+        'onnx_model': ONNX_PATH if os.path.exists(ONNX_PATH) else None,
+        'coral_model': CORAL_PATH if os.path.exists(CORAL_PATH) else None,
     }
 
 

@@ -1,126 +1,143 @@
-# Smart Pollinator Drone — Mission Simulation & Autonomous CV System
+# Smart Pollinator Drone — Mission Simulation & Agentic CV System
 
-A full-stack autonomous pollinator drone platform. The project has two integrated halves that mirror each other exactly: a browser-based interactive mission dashboard (Preact + TypeScript) and a production-grade autonomous flight + vision system (Python, Raspberry Pi 4, Pixhawk 4/6, YOLOv8). The same 13-phase mission logic, the same sensor model, and the same TSP path-planning algorithm run in both environments — the simulator is a pixel-perfect digital twin of the real drone.
+A full-stack autonomous pollinator drone platform built in two mirrored halves: a browser-based mission dashboard (Preact + TypeScript + Vite) that runs a real-time simulation of a drone pollinating flowers across a 20m × 20m garden, and a production-grade autonomous flight and computer vision system (Python FastAPI, Raspberry Pi 4, Pixhawk 2.4.8, Google Coral TPU) that can fly the same mission on real hardware.
+
+The two halves share identical mission logic, sensor models, and TSP path-planning algorithms. An LLM agent (Claude Haiku via LangChain `ChatAnthropic`) sits alongside the inference server and provides real-time planning decisions, adaptive confidence thresholds, and streaming mission commentary. LangChain callbacks route every LLM thought and tool invocation to the live terminal panel. Completed missions are embedded into a persistent Chroma vector store so the agent learns from past flights.
 
 ---
 
 ## Table of Contents
 
-1. [Project Overview](#project-overview)
-2. [Getting Started](#getting-started)
-3. [System Architecture — Full Picture](#system-architecture--full-picture)
-4. [Physical Drone Hardware Stack](#physical-drone-hardware-stack)
-   - [Flight Controller — Pixhawk 4/6](#flight-controller--pixhawk-46)
-   - [Companion Computer — Raspberry Pi 4](#companion-computer--raspberry-pi-4)
-   - [Camera](#camera)
-   - [Pollination Mechanism](#pollination-mechanism)
-   - [Wiring Diagram](#wiring-diagram)
-5. [Firmware & MAVLink Integration](#firmware--mavlink-integration)
-   - [MAVLink Interface](#mavlink-interface-mavlink_interfacepy)
-   - [Flight Controller Wrapper](#flight-controller-wrapper-flight_controllerpy)
-   - [Telemetry Messages Consumed](#telemetry-messages-consumed)
-6. [Computer Vision Pipeline (Real Drone)](#computer-vision-pipeline-real-drone)
-   - [Frame Preprocessor](#frame-preprocessor-frame_preprocessorpy)
-   - [YOLOv8 Flower Detector](#yolov8-flower-detector-flower_detectorpy)
-   - [Optical Flow Tracker](#optical-flow-tracker-optical_flow_trackerpy)
-   - [Depth Estimator](#depth-estimator-depth_estimatorpy)
-7. [ML Model — YOLOv8 Flower Detection](#ml-model--yolov8-flower-detection)
-   - [Model Architecture](#model-architecture)
-   - [Training Pipeline](#training-pipeline)
-   - [ONNX Export for Raspberry Pi](#onnx-export-for-raspberry-pi)
-   - [Detection Dataflow](#detection-dataflow)
-8. [Mission State Machine (Real + Simulated)](#mission-state-machine-real--simulated)
-   - [The 13 Phases](#the-13-phases)
-   - [Phase Transitions & Guards](#phase-transitions--guards)
-9. [Path Planning Agent — TSP Solver](#path-planning-agent--tsp-solver)
-10. [Pollination Manager](#pollination-manager-pollination_managerpy)
-11. [Python Inference Server](#python-inference-server)
-    - [WebSocket Protocol](#websocket-protocol)
-    - [Scene Renderer](#scene-renderer-scene_rendererpy)
-    - [Detection Bridge](#detection-bridge-detection_bridgepy)
-    - [Planning Agent (Server-Side TSP)](#planning-agent-server-side-tsp)
-12. [Web Simulator — How It Works](#web-simulator--how-it-works)
-    - [Mode 1: Deterministic Replay](#mode-1-deterministic-replay)
-    - [Mode 2: Live Inference](#mode-2-live-inference)
-13. [Autonomous Navigator (TypeScript)](#autonomous-navigator-typescript)
-    - [Phase State Machine](#phase-state-machine)
-    - [Proximity Detection](#proximity-detection)
-    - [TSP Route Computation](#tsp-route-computation)
-    - [Terminal Logging](#terminal-logging)
-14. [Live Inference Engine](#live-inference-engine-liveinferenceenginets)
-15. [WebSocket Client](#websocket-client-wsclientts)
-16. [Sensor Simulation System](#sensor-simulation-system)
-    - [Optical Flow Dataset](#optical-flow-dataset)
-    - [Sensor Interpolation Engine](#sensor-interpolation-engine)
-    - [Physics-Based Optical Flow Model](#physics-based-optical-flow-model)
-    - [CV–Sensor Coupling](#cvsensor-coupling)
-17. [Replay Engine](#replay-engine-replayenginets)
-18. [Mission Frame Generation](#mission-frame-generation)
-    - [Deterministic Replay Frames](#deterministic-replay-frames-missiongeneratorts)
-    - [Random Mission Generator](#random-mission-generator-randommissiongeneratorts)
-19. [UI Panels — Deep Dive](#ui-panels--deep-dive)
-    - [Top-Down Mission View](#top-down-mission-view)
-    - [Altitude / Side View](#altitude--side-view)
-    - [Telemetry Dashboard](#telemetry-dashboard)
-    - [Camera / Flower Analysis Panel](#camera--flower-analysis-panel)
-    - [Terminal Panel](#terminal-panel)
-    - [Live Status Bar](#live-status-bar)
-    - [Replay Controls](#replay-controls)
-20. [Data Models — Type Reference](#data-models--type-reference)
-21. [Configuration](#configuration)
-22. [Hardware Setup (Real Drone)](#hardware-setup-real-drone)
-23. [Tech Stack](#tech-stack)
-24. [Folder Structure](#folder-structure)
+1. [Architecture Overview](#architecture-overview)
+2. [How the Two Modes Work](#how-the-two-modes-work)
+3. [Frontend — Source Layout](#frontend--source-layout)
+4. [Data Layer](#data-layer)
+5. [Simulation Engine](#simulation-engine)
+6. [Sensor Models](#sensor-models)
+7. [UI Panels](#ui-panels)
+8. [Backend — Inference Server](#backend--inference-server)
+9. [Backend — Agent Server](#backend--agent-server)
+10. [LangChain Integration](#langchain-integration)
+11. [RAG Mission Memory](#rag-mission-memory)
+12. [UCB1 Confidence Bandit](#ucb1-confidence-bandit)
+13. [End-to-End Data Flow](#end-to-end-data-flow)
+14. [Quick Start](#quick-start)
+15. [Configuration](#configuration)
+16. [Physical Drone Hardware Stack](#physical-drone-hardware-stack)
+17. [Firmware & MAVLink Integration](#firmware--mavlink-integration)
+18. [Computer Vision Pipeline (Real Drone)](#computer-vision-pipeline-real-drone)
+19. [ML Model — YOLOv8 Flower Detection](#ml-model--yolov8-flower-detection)
+20. [Pollination Manager](#pollination-manager)
+21. [Hardware Assembly & Setup](#hardware-assembly--setup)
+22. [Tech Stack](#tech-stack)
 
 ---
 
-## Project Overview
+## Architecture Overview
 
-| Layer | Purpose | Stack |
-|---|---|---|
-| **Web Simulator** | Interactive mission replay & live inference dashboard | Preact 10 · TypeScript 5 · Vite 5 · TailwindCSS 4 · SVG |
-| **Python Inference Server** | Photorealistic frame synthesis · YOLOv8 ONNX inference · TSP planning | FastAPI · uvicorn · PIL · ONNX Runtime |
-| **drone-cv-system** | Autonomous flight · real sensor fusion · hardware control | Python · OpenCV · Ultralytics YOLOv8 · pymavlink |
-| **Pixhawk 4/6** | Flight control · IMU · EKF · barometer · GPS fusion | ArduPilot / PX4 firmware |
-| **Raspberry Pi 4** | Companion computer · camera · inference · MAVLink bridge | Ubuntu 22.04 · Python 3.9+ |
-
-The key design principle: **the web simulator is not a toy**. It uses the identical mission phase definitions, the identical TSP algorithm, and the identical sensor degradation model as the real hardware system. Mode 1 replays a deterministically pre-generated 90-second mission. Mode 2 runs the full autonomous loop in real time against the Python inference server, with the same flower-discovery → TSP → pollination sequence the real drone would execute.
-
----
-
-## Getting Started
-
-### Web Simulator (Mode 1 + Mode 2)
-
-```bash
-npm install
-npm run dev
-# → http://localhost:5173
 ```
-
-### Python Inference Server (required for Mode 2)
-
-```bash
-pip install -r drone-cv-system/server/requirements_server.txt
-
-# Optionally generate a real YOLOv8n ONNX model (~6 MB, requires internet)
-python3 drone-cv-system/server/generate_model.py
-```
-
-The server starts **automatically** when you click "Live Inference" in the browser. Vite's dev server intercepts `POST /api/start-inference-server` and spawns `inference_server.py` via Node.js `child_process`. If the ONNX model is not present, the server falls back to a physics-based mock detector transparently.
-
-### Real Drone System
-
-```bash
-# On Raspberry Pi 4
-cd drone-cv-system
-pip install -r requirements.txt
-python3 main.py
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          Browser — Preact + TypeScript                  │
+│                                                                         │
+│  ┌──────────────────┐  ┌────────────────┐  ┌──────────────────────────┐ │
+│  │  TopDownView     │  │  SideView      │  │  TelemetryPanel          │ │
+│  │  SVG 20×20m      │  │  altitude      │  │  sensor HUD + AI section │ │
+│  │  garden, drone   │  │  cross-section │  │  EKF, OF, battery, CV    │ │
+│  │  trail, TSP+AI   │  │  sparkline     │  │  decisions, overrides    │ │
+│  │  route overlays  │  └────────────────┘  └──────────────────────────┘ │
+│  └──────────────────┘                                                   │
+│  ┌──────────────────┐  ┌──────────────────────────────────────────────┐ │
+│  │  CameraAnalysis  │  │  AgentCommentaryPanel                        │ │
+│  │  layered SVG     │  │  streaming commentary, decision badge,       │ │
+│  │  reticle, heatmap│  │  confidence gauge, decision history          │ │
+│  │  flow vectors    │  └──────────────────────────────────────────────┘ │
+│  └──────────────────┘                                                   │
+│  ┌─────────────────────────────────────────────────────────────────────┐│
+│  │  TerminalPanel   [SYS] [PHASE] [→WS] [←WS] [DET] [TSP] [NAV] [AI]   ││
+│  │  real-time color-coded flight log — AI tab shows LangChain events   ││
+│  └─────────────────────────────────────────────────────────────────────┘│
+│                                                                         │
+│  ┌──────────────────────────────────────────────────────────────────┐   │
+│  │  liveInferenceEngine  (requestAnimationFrame loop, 30 fps)       │   │
+│  │   ├─ AutonomousNavigator  ←── applyAgentDecision()               │   │
+│  │   │   13-phase FSM, lawnmower scan, TSP, proximity detection     │   │
+│  │   ├─ WsClient            WebSocket → :8765  (inference)          │   │
+│  │   └─ AgentClient         HTTP/SSE/WS → :8766  (agent)            │   │
+│  │       ├─ POST /decide    (debounced 200ms, every 30 frames)      │   │
+│  │       ├─ GET  /stream    (SSE commentary on phase transitions)   │   │
+│  │       ├─ WS  /terminal   (LangChain callback drain, 100ms tick)  │   │
+│  │       └─ POST /mission/save (fire-and-forget on nav.done)        │   │
+│  └──────────────────────────────────────────────────────────────────┘   │
+└──────────────┬──────────────────────────────┬───────────────────────────┘
+               │                              │
+     :8766 HTTP/SSE/WS                  :8765 WebSocket
+               │                              │
+┌──────────────▼────────────┐  ┌──────────────▼─────────────────────────┐
+│  Agent Server             │  │  Inference Server                      │
+│  agent_server.py          │  │  inference_server.py                   │
+│  FastAPI + LangChain      │  │  FastAPI WebSocket                     │
+│                           │  │                                        │
+│  POST /decide             │  │  WS /inference                         │
+│    ChatAnthropic          │  │    ① receive drone + flowers JSON      │
+│    .bind_tools()          │  │    ② scene_renderer.py → 640×640 frame │
+│    RAG context injected   │  │    ③ DetectionBridge.detect()          │
+│    max 3 tool rounds      │  │       Coral TPU → ONNX → mock           |
+│    callbacks attached     │  │    ④ _compute_tsp_suggestion()         │
+│                           │  │    ⑤ _phase_suggestion()               │
+│  LangChain Tools:         │  │    ⑥ return detections + TSP + phase   │
+│  - compute_tsp_route      │  └─────────────────────────────────────────┘
+│  - estimate_battery_range │
+│  - recommend_conf_thresh  │  ┌────────────────────────────────────────┐
+│  - plan_scan_pattern      │  │  Chroma RAG Store                      │
+│                           │  │  drone-cv-system/mission_history/      │
+│  WS /terminal             │  │                                        │
+│    DroneTerminalCallback  │  │  Embeddings: all-MiniLM-L6-v2          │
+│    drain queue 100ms      │  │  local CPU — no API key needed         │
+│    → frontend AI tab      │  │                                        │
+│                           │  │  Saved after each mission completes    │
+│  GET /stream  (SSE)       │  │  Retrieved before each /decide call    │
+│  POST /mission/save       │  │  Top-3 similar missions injected into  │
+│  POST /feedback (bandit)  │  │  Claude system prompt                  │
+│  GET /health /metrics     │  └────────────────────────────────────────┘
+│  UCB1 ConfidenceBandit    │
+└───────────────────────────┘
 ```
 
 ---
 
-## System Architecture — Full Picture
+## How the Two Modes Work
+
+The app boots to a mode selector. There are two execution paths that share all the same UI panels and TypeScript types but drive them from completely different engines.
+
+### Replay Mode
+
+Replay mode runs a deterministic pre-generated mission. On first render, `getMissionFrames()` is called once and caches all **2700 frames** (30 fps × 90 seconds) in a `useRef`. A `requestAnimationFrame` loop in `useReplayEngine` accumulates wall-clock delta time, multiplies by the speed setting (1×, 2×, 4×), and advances a frame index. The loop reads `frames.current[frameIndex]` and sets it as the current `ReplayFrame` in React state. All panels receive this frame as a prop — they are pure rendering functions with no simulation logic of their own.
+
+The frame index is the single source of truth. Position history is a sliding window of the last 90 drone XY coordinates read directly from the pre-generated frames. Altitude history samples every 5th frame. Events accumulated from `frame.events` arrays are kept as a rolling window of 100.
+
+Seeking works by jumping `frameIndex` directly and rebuilding the history windows by slicing `frames.current[0..targetIndex]`. This is O(n) but runs fast because it's just array iteration over pre-computed data.
+
+### Live Mode
+
+Live mode runs a real autonomous mission. `useLiveInferenceEngine` creates:
+
+- An `AutonomousNavigator` instance with a randomly seeded garden
+- A `WsClient` connected to the inference server at `ws://localhost:8765/inference`
+- An `AgentClient` connected to the agent server at `http://localhost:8766`
+
+The same `requestAnimationFrame` loop ticks the navigator with `dt` (delta seconds, capped at 100ms to prevent spiral-of-death on tab focus). Each tick:
+
+1. `nav.tick(dt, latestInference)` — advance the state machine, detect flowers, move the drone, return a `LiveFrame`
+2. `ws.send(lf.drone, lf.flowers, lf.phase)` — push state to inference server
+3. Every 30 frames: `agent.requestDecision(lf)` — fire debounced POST to `/decide`
+4. On phase change: `agent.startCommentaryStream(lf)` — open SSE to `/stream`
+5. When `nav.done`: `agent.saveMission(lf)` — embed mission into Chroma
+
+The `LiveFrame` is adapted to a `ReplayFrame` shape via `liveToReplay()` in `App.tsx` so all four existing panels render without modification. The agent state (`AgentState`) is threaded separately via additional props to panels that need it.
+
+---
+
+## Frontend — Source Layout
 
 ```
 ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -185,14 +202,782 @@ python3 main.py
 
 ---
 
+## Data Layer
+
+### Replay Mission Generator (`missionGenerator.ts`)
+
+The replay mission is entirely pre-computed. `getMissionFrames()` runs once (lazily, then cached) and returns an array of 2700 `ReplayFrame` objects covering 90 seconds at 30 fps.
+
+**Garden layout.** 10 flower clusters at fixed positions within a 20m × 20m space. Clusters are identified `f1`–`f10`. The drone home base is at `(2, 2)`. 8 of the 10 clusters are visited during the mission (f8 and f10 are unvisited bystanders, visible but never targeted).
+
+**Timeline segments.** The 90-second mission is divided into named segments:
+
+```
+0–2s      idle       — drone stationary, systems initializing
+2–4s      arming     — pre-flight sequence
+4–8s      takeoff    — climb from 0m to 8m patrol altitude
+8–14s     transit    — fly from home to first waypoint
+14–22s    scanning   — hover scan of cluster
+22–26s    candidate  — confidence building (0.2→0.6)
+26–30s    target_lock— high confidence achieved (0.6→0.92)
+30–34s    descent    — descend 8m → 1.5m
+34–37s    hover_align— XY precision alignment
+37–41s    pollinating— pollination mechanism active
+41–45s    ascent     — climb back to 8m
+45–90s    (repeat for remaining 7 clusters with adjusted timing)
+```
+
+**Per-frame computation.** For each frame index `i`:
+1. Determine which timeline segment it falls in
+2. Compute `t = (i - segmentStart) / segmentDuration` (normalized 0→1)
+3. Lerp drone X/Y between segment start and end waypoints
+4. Add a sinusoidal wobble (`sin(t * 7.3 * 2π) × 0.03m`) for realism
+5. Compute altitude as a piecewise function of phase
+6. Look up sensor state via `getSensorAtDistance(drone.z * 39.37)`
+7. Compute optical flow state via `computeOpticalFlowState(sample, i)`
+8. Compute detection confidence as a phase-specific ramp × sensor coupling
+9. Update flower states (unscanned → discovered → candidate → locked → pollinated)
+10. Emit events at phase transitions
+
+**Seeded RNG.** The `seededRandom(42)` PRNG (multiplicative linear congruential: `s = s × 16807 mod 2147483647`) ensures every run produces identical frames. This makes regression testing against visual output reliable.
+
+### Random Garden Generator (`randomMissionGenerator.ts`)
+
+Used by live mode to generate a fresh garden for each session.
+
+**`generateRandomGarden(seed)`** places 6–10 flowers using a different LCG (`s = s × 1664525 + 1013904223`). Each flower is rejected if it falls within 3m of the home base at `(2,2)` or within 2.8m of another flower. Positions are rounded to 0.1m. Returns `LiveFlower[]` — all start as `'undiscovered'`.
+
+**`generateLawnmowerPath(spacing = 4.5)`** generates a boustrophedon (alternating S→N / N→S) set of waypoints spaced `spacing` meters apart from `x=3.0` to `x=18.0`. At default 4.5m spacing with a 4.5m proximity detection radius, every point in the flower zone `[2.5m, 17.5m]` is covered. The spacing parameter is overridden by agent decisions when the scan pattern tool recommends tighter or wider passes.
+
+**`computeTSPRoute(flowers, discoveredIds)`** runs a greedy nearest-neighbor heuristic starting from home `(2,2)`. At each step it picks the unvisited discovered flower closest to the current position. O(n²) but n ≤ 10 so this is negligible. Returns an ordered array of flower IDs.
+
+### Optical Flow Dataset (`opticalFlowDataset.ts`)
+
+Real sensor data from `raw_opticalflow_data.csv` is merged with synthetically generated midpoint rows to give 6-inch step resolution from 0 to 315 inches. The merge strategy:
+
+1. Load the 24 real rows (0–276 inches at 12-inch intervals)
+2. Generate synthetic midpoint rows between each consecutive real pair
+3. Generate 3 extrapolated rows from 276 to 315 inches (patrol altitude coverage)
+4. Merge: real rows always override synthetic rows at matching distances
+5. Sort the combined dataset by `distance_in`
+
+The resulting dataset has ~50 rows and is cached in a module-level constant.
+
+---
+
+## Simulation Engine
+
+### Replay Engine (`replayEngine.ts`)
+
+`useReplayEngine()` is a Preact hook that wraps a `requestAnimationFrame` loop.
+
+**State.** All mutable loop state lives in refs (not React state) to avoid triggering re-renders on every frame tick:
+- `frameIndexRef` — current index into the frames array
+- `isPlayingRef` — controls whether the RAF loop continues
+- `speedRef` — 1, 2, or 4 (multiplied into accumulated delta time)
+- `accumulatedTimeRef` — fractional frame accumulator (handles non-integer fps)
+- `lastTimeRef` — previous `requestAnimationFrame` timestamp
+
+React state is only set when visible output changes: `currentFrameData`, `positionHistory`, `altitudeHistory`, `accumulatedEvents`.
+
+**Tick loop.** Each RAF callback:
+1. Computes `delta = timestamp - lastTimestamp` in ms
+2. Adds `(delta / 1000) × speed` to `accumulatedTime`
+3. Advances `frameIndex` by `floor(accumulatedTime × 30)` frames
+4. Subtracts the integer portion back out of `accumulatedTime`
+5. Updates histories and emits events if the new frame has any
+
+**Seek.** `seekTo(time)` converts time to a frame index and sets it directly. Histories are rebuilt by iterating `frames[0..targetIndex]` and re-applying the same update logic.
+
+### Live Inference Engine (`liveInferenceEngine.ts`)
+
+`useLiveInferenceEngine()` owns all live simulation state. It creates and manages three worker objects (`AutonomousNavigator`, `WsClient`, `AgentClient`) and runs a RAF loop that drives them together.
+
+**Terminal buffer.** To avoid O(n) React re-renders on every terminal push, entries are accumulated in a `useRef` buffer (`termBufRef`) and synced to React state every 250ms via a `setInterval`. The terminal panel therefore has at most 4 state updates per second regardless of how many events fire.
+
+**Phase transition detection.** `lastPhaseRef` stores the previous frame's phase. When `lf.phase !== lastPhaseRef.current`, a new SSE commentary stream is started by calling `agent.startCommentaryStream(lf)`.
+
+**Agent decision loop.** `frameIdxRef` increments each RAF tick. When `frameIdxRef % 30 === 0` (once per second at 30fps), `agent.requestDecision(lf)` fires. The decision is debounced inside `AgentClient` to 200ms so rapid phase transitions don't flood the server.
+
+**Mission completion.** When `nav.done` is true, the RAF loop stops and `agent.saveMission(lf)` fires a background POST to embed the completed mission into Chroma.
+
+### Autonomous Navigator (`autonomousNavigator.ts`)
+
+`AutonomousNavigator` is a class (not a hook) that implements the 13-phase live mission as a state machine. It is instantiated once per live session.
+
+**State.** All drone physics state, flower states, route planning state, and history windows live inside the class instance. The `tick(dt, inference)` method is the single entry point called each RAF frame.
+
+**Phases and transitions:**
+
+```
+idle
+  └─ immediately → arming (armTimer starts)
+
+arming (2s dwell)
+  └─ → takeoff
+
+takeoff
+  └─ climb at 1.8 m/s until z ≥ 7.9m → scanning
+
+scanning
+  └─ moveToward(lawnmower[scanWpIdx], 2.5 m/s)
+     doProximityDetection() each frame
+     on waypoint reached: scanWpIdx++
+     when all lawnmower WPs done: scanComplete=true → planning
+
+planning (2.5s dwell)
+  └─ computeTSPRoute(flowers, discoveredIds)
+     fallback: if zero CV detections, add all flowers
+     → approach (or mission_complete if route empty)
+
+approach
+  └─ moveToward(currentTarget, 2.0 m/s) at PATROL_ALT
+     doProximityDetection() continues during approach
+     on arrival (< 0.4m): → descent
+
+descent
+  └─ lower z at 1.8 m/s to 1.5m
+     slow XY drift toward target (0.5 m/s)
+     when z ≤ 1.65m: → hover_align
+
+hover_align
+  └─ moveToward(target, 0.3 m/s) at 1.5m
+     track XY error; when < 0.18m for 0.5s: → pollinating
+
+pollinating (3s dwell)
+  └─ pollinateTimer counts
+     on complete: push to pollinatedIds, flower.state = 'pollinated'
+     send feedback POST to agent → bandit update
+     → ascent
+
+ascent
+  └─ climb at 1.8 m/s to 8m
+     when z ≥ 7.9m: → resume
+
+resume
+  └─ tspIdx++
+     if more targets remain: → approach
+     else: → mission_complete
+
+mission_complete
+  └─ fly back toward home (2, 2) at 2.0 m/s
+     on arrival: → landing
+
+landing
+  └─ descend at 1.1 m/s
+     when z ≤ 0.01m: nav.done = true, RAF loop stops
+```
+
+**Proximity detection.** Each frame during `scanning` and `approach`, every undiscovered flower is checked: if `hypot(drone.x - flower.x, drone.y - flower.y) < 4.5m`, the flower transitions to `'discovered'` and is added to `discoveredIds`. Confidence at detection = `0.9 - (dist / 4.5) × 0.6` (0.9 at zero offset, 0.3 at edge of radius). Whenever a new discovery is made, `computeTSPRoute` is re-run immediately.
+
+**Inference integration.** If the WebSocket server returns an `InferenceResult`, `processInference(inf)` runs: for each detection, the confidence is updated on the matching flower, flower state is promoted (`scanned → candidate → locked`) based on `currentConfidenceThreshold` (dynamically set by the agent), and any server-suggested TSP IDs not yet in `discoveredIds` are added.
+
+**Agent integration.** `applyAgentDecision(decision)`:
+- If `decision.priorityOverride` is non-empty and `!planningComplete`, rebuilds `tspRoute` with the agent-suggested order (filtering to only valid undiscovered/unpollinated IDs)
+- If `decision.altitudeOverride` is set, logs it to the terminal
+- `currentConfidenceThreshold` is updated from `decision.confidenceThreshold` on every decision
+- `scanSpacing` is updated from `decision.scanSpacing` (triggers lawnmower regeneration on next scan pass)
+
+### Agent Client (`agentClient.ts`)
+
+`AgentClient` manages all communication with the agent server. All methods fail silently so the simulation continues normally when the server is offline.
+
+**Health polling.** On `connect()`, a `setInterval` checks `GET /health` every 3 seconds. Status transitions: `disconnected → connecting → connected` (on 200 OK) or `error` (on non-200). When status becomes `'connected'`, `openTerminalWs()` is called automatically if `connectTerminalStream()` has already been called.
+
+**Decision channel.** `requestDecision(frame)` sets a 200ms `setTimeout`. If a new call arrives before it fires, the timer is reset (debounce). On fire, a `POST /decide` is sent with the drone state, flowers, phase, sensor, pollinated/discovered IDs, and battery. Response is an `AgentDecision` JSON.
+
+**Commentary channel.** `startCommentaryStream(frame)` aborts any existing SSE stream and opens a new `GET /stream` with query params extracted from the current frame. The response body is read as a `ReadableStream`. Each `data: {...}` SSE line is parsed. Text delta chunks are accumulated and the `onCommentary` callback fires on each chunk (with `streaming: true`) and on completion (with `streaming: false`). Incomplete lines are buffered across chunks.
+
+**Terminal WebSocket channel.** `connectTerminalStream(onEvent)` stores the callback and calls `openTerminalWs()`. The WS connects to `ws://localhost:8766/terminal`. Each incoming `{events: [{type, text}]}` message routes each event to `onTerminalEvent(type, text)`, which calls `pushTerminal()` in `liveInferenceEngine`. This is how LangChain callback events appear as emerald **AI** entries in the terminal. If the WS closes, it reconnects after 3 seconds while agent status is `'connected'`.
+
+**Mission save channel.** `saveMission(frame)` POSTs `{events, telemetry}` to `/mission/save`. Fire-and-forget with 5s timeout.
+
+**Feedback channel.** `sendFeedback(success, state)` POSTs to `/feedback`. Called by `AutonomousNavigator` after each successful pollination to update the UCB1 bandit.
+
+---
+
+## Sensor Models
+
+### Sensor Interpolation (`sensorInterpolation.ts`)
+
+`getSensorAtDistance(distanceInches)` looks up the optical flow sensor state at the current drone altitude. The altitude in meters is converted to inches (`z × 39.37`) before calling this function.
+
+**Algorithm:**
+1. Clamp input to `[0, 315]` inches (no extrapolation)
+2. Binary search the dataset to find the bracketing pair `(lower, upper)` such that `lower.distance_in ≤ input ≤ upper.distance_in`
+3. Compute normalized parameter `t = (input - lower.distance_in) / (upper.distance_in - lower.distance_in)`
+4. Apply smooth-step easing: `st = t² × (3 − 2t)` — this prevents sharp transitions at dataset boundaries
+5. Lerp all scalar fields: `sensor_distance`, `strength`, `precision`, `flow_vel_x`, `flow_vel_y`, `flow_quality`
+6. Return an `OpticalFlowSample` with the interpolated values
+
+The smooth-step easing means sensor readings don't jump abruptly between dataset rows — they ease in and out of transitions, mimicking the continuous nature of physical sensor response.
+
+### Optical Flow Physics Model (`opticalFlowModel.ts`)
+
+`computeOpticalFlowState(sample, frameIndex)` takes an interpolated sensor sample and applies physics-based processing to produce the full `OpticalFlowState`.
+
+**Base physics:**
+```
+vx = sample.flow_vel_x × (distance_in / 1000)
+vy = sample.flow_vel_y × (distance_in / 1000)
+```
+Optical flow apparent motion scales linearly with altitude — a flower appears to move faster in the image at higher altitude for the same ground speed. The `/1000` factor normalizes the sensor's raw velocity values.
+
+**Stability and quality derivation:**
+```
+stability         = min(1, flow_quality / 150)        // 150 is peak quality from real data at ~3m
+noise             = (1 − stability) × 0.15
+normalizedStrength = strength / 255
+precisionWeight   = 1 / max(1, precision)              // lower precision number = better
+effectiveQuality  = flow_quality × normalizedStrength × precisionWeight
+```
+
+**Degradation above 5m (197 inches):**
+```
+excess            = (distance_in − 197) / 118         // 0→1 over the 197–315in range
+degradedStability = stability × (1 − excess × 0.60)
+degradedQuality   = effectiveQuality × (1 − excess × 0.70)
+```
+At patrol altitude (8m ≈ 315 inches), the sensor is at 40% of nominal stability and 30% of nominal quality, modeling real sensor degradation from range.
+
+**Low-strength noise amplification:**  
+When `strength < 60`, noise increases: `finalNoise += (1 − strength/60) × 0.25`. Weak return signal produces noisy measurements.
+
+**Deterministic drift (quality < 50):**  
+When the flow quality falls below 50, the sensor is unreliable. Drift is injected using a deterministic pseudo-random function seeded by `frameIndex`:
+```
+driftX = (pseudoRand(frameIndex × 0.03)       − 0.5) × 0.4
+driftY = (pseudoRand(frameIndex × 0.03 + 100) − 0.5) × 0.4
+```
+`pseudoRand(seed) = frac(sin(seed × 127.1 + 311.7) × 43758.5453)` — a hash-like function that produces stable values without a PRNG object. The drift is reproducible per frame index, so seeking in replay mode gives identical results.
+
+**Hover instability (altitude < 3m / 118 inches):**  
+```
+hoverX = sin(t × 4.3) × 0.05    where t = frameIndex / 30
+hoverY = cos(t × 3.7) × 0.05
+```
+Low-altitude hover introduces sinusoidal ground-effect oscillation in the velocity readings. The 4.3 and 3.7 frequencies create a slightly irregular wobble rather than a perfect circle.
+
+**CV coupling.** Detection confidence is modulated each frame by optical flow quality:
+```
+stabilityFactor = 0.6 + 0.4 × stability          // never below 60%
+strengthFactor  = 0.6 + 0.4 × (strength / 255)   // never below 60%
+confidence     *= stabilityFactor × strengthFactor
+```
+If `|vx| > 1.5 or |vy| > 1.5 m/s`: blur penalty reduces confidence. If `flow_quality < 50`: heavy reduction `× 0.6`. If `stability > 0.7 and altitude < 3m` (stable hover): 15% boost.
+
+---
+
+## UI Panels
+
+### Top-Down Garden View
+
+Renders the full 20m × 20m garden as a scaled SVG. The coordinate transform maps meters → pixels using a fixed scale factor. Features:
+
+- **Flower clusters** — each cluster renders 4–7 individual flower SVGs using `FlowerClusterRenderer`. Petal count, angle, and position are seeded from the cluster ID so they look different but are always identical across renders.
+- **State coloring** — `unscanned` (dark, low opacity), `discovered` (amber ring), `candidate` (orange ring + glow), `locked` (cyan ring + bright), `pollinated` (green ring + full opacity)
+- **Drone body** — a hexagonal body with 4 arm stubs. Each arm tip has a small circle representing a rotor with a CSS `spin` animation. The body rotates to match `drone.yaw`.
+- **Motion trail** — a polyline through the last 90 position history points. Opacity fades toward the oldest point.
+- **TSP route** — dashed lines connecting the current planned visit order in the drone's current accent color.
+- **AI route overlay** — when `agent.lastDecision.priorityOverride` is non-empty, a second dashed route is drawn in purple `#a78bfa` with numbered stop labels.
+- **Home base** — small marker at `(2, 2)` with "HOME" label.
+
+### Side View (Altitude Profile)
+
+SVG cross-section showing altitude over time. The X axis spans the altitude history (up to 150 samples, sampled every 5 frames ≈ every 0.83 seconds). The Y axis spans 0–10m. A polyline connects the altitude history points. A small drone silhouette marker sits at the rightmost (current) position. Phase-colored horizontal bands show the patrol altitude (8m) and hover altitude (1.5m).
+
+### Telemetry Panel
+
+A grid of labeled metric rows organized into sections. All values read directly from the current `ReplayFrame.sensor` and `ReplayFrame.drone` objects — no computation happens here.
+
+Sections: Navigation (x, y, z, speed, yaw, yawRate), Optical Flow (all extended fields from `ofStrength`, `ofPrecision`, `ofStability`, `ofNoise`, `ofEffectiveQuality`, `distanceInches`, `sensorDistanceMm`), Rangefinder (rangefinderDistance, sonarEstimate), EKF Confidence bar, Battery bar, Signal Strength bar, CV Detection (confidence bar, current target ID, flowers in view, target locked status), Mission State (phase chip, pollinated/total, elapsed).
+
+In live mode, an additional AI AGENT section shows: agent connection dot (color-coded), total decisions made, number of route overrides applied, current dynamic confidence threshold with a small bar, and the last decision action + truncated reasoning text.
+
+### Camera / Flower Analysis Panel
+
+The most visually complex panel. `CameraAnalysisPanel` first runs `computeAnalysisFrame(frame)` to transform the `ReplayFrame` into an `AnalysisFrame` — this is the only panel with a data transformation step.
+
+**`computeAnalysisFrame` pipeline:**
+1. Maps each `FlowerCluster` to a `FlowerRenderState` with fixed camera-space positions from the `CAMERA_POSITIONS` lookup (800×500 viewbox coordinate system)
+2. Determines if the current target flower should zoom to scene center `(400, 230)` at scale 2.0 during `target_lock`, `descent`, `hover_align`, `pollinating`, `ascent`
+3. Computes `FrustumState.tightness` from the phase tightness map (0 = wide, 1.0 = maximally tight, reached during `pollinating`)
+4. Passes the resulting `AnalysisFrame` to `CameraAnalysisScene`
+
+**Scene layers (bottom to top):**
+1. Dark background with radial vignette
+2. `FlowerClusterRenderer` — one group per visible flower, with jitter applied (`jx/jy` random offsets) when `of_quality < 50`, and SVG `feGaussianBlur` motion blur when `|velocity| > 1.0 m/s`
+3. `DetectionHeatmap` — per-flower radial gradient blobs, opacity driven by `confidence × qualityIntensity`
+4. `PollinationEffect` — only active during `pollinating`: 8 orbiting sparkle particles + 3 concentric pulse rings
+5. `FlowVectorOverlay` — a 5×4 grid of small flow lines plus one large velocity arrow at scene center. Color and animation class depend on stability tier.
+6. `DetectionReticle` — corner brackets and crosshair, tightness controlled by phase
+7. `MissionPhaseOverlay` — phase-specific banner text
+8. `AnalysisHud` — bottom strip with phase chip, confidence sparkline, lock indicator
+9. `OpticalFlowHud` — top-right mini panel with sensor readings
+
+If a `livePng` base64 JPEG is provided (from the inference server), it is rendered as an `<image>` tag under all SVG layers, showing the actual synthetic camera frame that was fed to the ML detector.
+
+### Terminal Panel
+
+A fixed-bottom overlay showing the rolling flight computer log. Entries are color-coded:
+
+| Type | Color | Content |
+|---|---|---|
+| `sys` | Slate | Session/connection events |
+| `phase` | Purple | State machine transitions |
+| `ws-out` | Blue | WebSocket frames sent |
+| `ws-in` | Cyan | WebSocket frames received |
+| `detect` | Green | CV flower detections |
+| `tsp` | Amber | Route planning updates |
+| `nav` | Gray | Proximity detection, navigation |
+| `error` | Red | Connection/inference errors |
+| `agent` | Emerald | LangChain LLM thoughts, tool calls, RAG hits |
+
+The AI filter tab isolates the emerald `agent` entries, showing only what the LLM and its tools are doing. Each entry shows a timestamp (seconds since session start), type label, and truncated text.
+
+---
+
+## Backend — Inference Server
+
+### `inference_server.py` (port 8765)
+
+FastAPI app with a single WebSocket endpoint `/inference`. The server is started automatically by the Vite dev server via `/api/start-inference-server` when live mode is selected.
+
+**WebSocket protocol:**
+
+Client → Server (every ~100ms, sent from `WsClient.send()`):
+```json
+{
+  "drone":   { "x": 12.3, "y": 8.4, "z": 8.0, "yaw": 45.2 },
+  "flowers": [{ "id": "r1", "x": 5.5, "y": 9.2, "radius": 0.8, ... }],
+  "phase":   "scanning"
+}
+```
+
+Server → Client:
+```json
+{
+  "detections":      [{ "id": "r1", "confidence": 0.73, "cls": "flower_open", "bbox": [210,190,430,410] }],
+  "phaseSuggestion": "approach",
+  "targetId":        "r1",
+  "inferenceMs":     12.4,
+  "inferenceMode":   "mock",
+  "framePng":        "<base64 JPEG>",
+  "tspSuggestion":   ["r1", "r3", "r2"]
+}
+```
+
+**Processing pipeline per message:**
+1. Parse JSON, extract `drone`, `flowers`, `phase`
+2. `render_frame(drone, flowers)` — run in a thread executor to avoid blocking the event loop
+3. `bridge.detect(frame_arr, drone, flowers)` — run in executor, returns `(detections, mode, elapsed_ms)`
+4. Optionally encode frame as base64 JPEG via `frame_to_base64()`
+5. `_phase_suggestion(detections, phase)` — simple confidence threshold logic
+6. `_compute_tsp_suggestion(detections, flowers, drone_x, drone_y)` — greedy NN TSP
+7. Assemble response dict and `send_json()`
+
+### Scene Renderer (`scene_renderer.py`)
+
+Generates a 640×640 top-down synthetic camera frame using PIL (Pillow). Each flower is projected from garden coordinates into pixel space using the pinhole camera model:
+
+```python
+rel_x = flower.x - drone.x
+rel_y = flower.y - drone.y
+
+# Rotate by drone yaw
+cam_x = rel_x * cos(yaw_rad) + rel_y * sin(yaw_rad)
+cam_y = -rel_x * sin(yaw_rad) + rel_y * cos(yaw_rad)
+
+# Project (90° FOV → focal length = IMG_SIZE / 2 = 320)
+u = 320 * cam_x / altitude + 320
+v = 320 * cam_y / altitude + 320
+radius_px = max(3, int(flower.radius / altitude * 320))
+```
+
+Flowers outside the image bounds are skipped. For each visible flower, `_draw_flower()` renders:
+- A green ellipse shadow offset by 3px
+- 6 petals drawn as ellipses rotated around the center, angles seeded by `hashlib.md5(f'{seed}-{n}')` for deterministic per-flower variation
+- A darkened center circle (the nectary)
+- A curved stem and two leaf ellipses below the bloom
+- A Gaussian blur pass via PIL for anti-aliasing
+
+The resulting NumPy float32 `[640, 640, 3]` array is returned for inference and optionally JPEG-encoded to base64.
+
+### Detection Bridge (`detection_bridge.py`)
+
+Three-tier detection hierarchy:
+
+**Tier 1: `CoralBridge` (Google Coral USB TPU)**  
+Wraps `cv/coral_detector.py` → `pycoral.utils.edgetpu.make_interpreter()`. Loads an EdgeTPU-compiled `_edgetpu.tflite` INT8 model. The input frame (float32 [0,1]) is converted to uint8 for the TPU. After inference, detected bounding boxes are scaled from the model's input resolution back to 640×640 and matched to projected garden flowers using nearest-centroid matching (box center within `radius × 2.5` pixels of projected flower center). Target latency: ~5ms.
+
+**Tier 2: `OnnxDetector` (ONNX Runtime CPU)**  
+Loads `flower_detector.onnx` via `onnxruntime.InferenceSession` with 2 threads. The YOLOv8n output format is `[1, 84, 8400]`: first 4 values are `cx, cy, w, h` in pixels, next 80 are per-class scores. The model was trained with 3 classes: `flower_open`, `flower_closed`, `flower_cluster`. After confidence filtering (`> 0.20`) and NMS, boxes are matched to projected garden flowers the same way as Coral. Target latency: ~30ms.
+
+**Tier 3: `MockDetector` (physics-based)**  
+No ML required. For each flower, projects its position into camera space, computes horizontal distance from drone, and scores confidence as:
+```python
+base = max(0, 1.0 - hdist / (alt * 1.8))
+conf = base * (0.6 + 0.4 * stability) * (0.6 + 0.4 * strength / 255)
+```
+Flowers with confidence < 0.12 are excluded. Results sorted by confidence descending. Always available.
+
+**Fallback behavior.** If Coral inference fails (hardware disconnected, timeout > 2s), the bridge nulls out the Coral instance and falls to ONNX. If ONNX fails, it nulls out ONNX and falls to mock. These transitions are permanent for the session — no retry.
+
+---
+
+## Backend — Agent Server
+
+### `agent_server.py` (port 8766)
+
+FastAPI app with five endpoint types serving the LangChain planning agent.
+
+### `POST /decide` — LangChain Planning Decision
+
+The main planning endpoint. `_llm_decide(state)` runs:
+
+**Step 1 — RAG retrieval:**
+A semantic query string is assembled from the current state:
+```
+"phase=scanning battery=87 stability=0.72 discovered=3 pollinated=1"
+```
+`MissionStore.retrieve_context(query, k=3)` embeds this query and returns the 3 most similar past missions as formatted text. If the store is empty or unavailable, this returns an empty string and the step is skipped.
+
+**Step 2 — System prompt construction:**
+```
+"You are an autonomous drone mission planner AI for a pollinator drone.
+Your goal is to maximise flower pollination efficiency while managing
+battery life and sensor conditions. You have access to planning tools.
+Be concise and decisive.
+
+[RAG context appended here if available]"
+```
+
+**Step 3 — User message construction:**
+The current mission state is serialized into a concise natural-language message describing phase, position, altitude, battery, optical flow stability, discovered/pollinated counts, and remaining targets.
+
+**Step 4 — LangChain `ChatAnthropic.invoke()` with callbacks:**
+```python
+lc_model = ChatAnthropic(model="claude-haiku-4-5-20251001", api_key=...).bind_tools(lc_tools)
+response = lc_model.invoke(messages, config={"callbacks": [_terminal_callback]})
+```
+`bind_tools()` converts the LangChain `StructuredTool` list into the Anthropic tools format and attaches them to every call. The callback fires `on_chat_model_start` as the call begins and `on_llm_end` when it returns.
+
+**Step 5 — Tool dispatch loop (max 3 rounds):**
+```python
+while tool_calls exist and round < 3:
+    for each tool_call in response.tool_calls:
+        result = dispatch(tool_call.name, tool_call.args)
+        # Extract planning data from results
+        if name == "compute_tsp_route": priority_override = result["route"]
+        if name == "recommend_confidence_threshold": conf_threshold = result["threshold"]
+        if name == "plan_scan_pattern": scan_spacing = result["spacing"]
+    append AIMessage + ToolMessages to conversation
+    invoke again
+```
+Each tool dispatch fires `on_tool_start` and `on_tool_end` callbacks.
+
+**Step 6 — Decision assembly:**
+The final `AIMessage` content string is the reasoning. Action type is inferred from which tools were called and from keywords in the reasoning text. Returns:
+```json
+{
+  "action":              "replan",
+  "reasoning":           "Battery at 72%, 4 flowers remain. TSP route optimized...",
+  "priorityOverride":    ["r2", "r4", "r1", "r3"],
+  "altitudeOverride":    null,
+  "confidenceThreshold": 0.60,
+  "scanSpacing":         null,
+  "decisionMs":          340.2,
+  "modelUsed":           "langchain/claude-haiku-4-5-20251001"
+}
+```
+
+**Tool implementations** (called locally in Python, never sent to the LLM for execution):
+
+| Tool | Logic |
+|---|---|
+| `compute_tsp_route` | Greedy nearest-neighbor from drone position. If `prioritize_confidence=True`, scores each flower by `confidence / distance` and picks the best combined score at each step. Caps route length by estimated battery range. |
+| `estimate_battery_range` | `reachable = (battery − 20) / (8 + avg_dist × 0.5)`. The 20% floor is the minimum safe return battery. 8 = approx cost per flower visit in % units. |
+| `recommend_confidence_threshold` | Delegates to `ConfidenceBandit.select_threshold()` if available, else applies a heuristic: base 0.40 (scanning), 0.75 (approach), adjusted ±0.05 by stability, ±0.03 by battery, ±0.05 by remaining count. |
+| `plan_scan_pattern` | Spacing 3.5m if >3 flowers already found, 5.5m if 0 found, 4.5m otherwise. Computes `passes = garden_size / spacing`. |
+
+**Graceful degradation.** If `ANTHROPIC_API_KEY` is unset or LangChain is not installed, `_mock_decision()` returns immediately with `action='continue'`, empty override, and fixed 0.75 threshold.
+
+### `WS /terminal` — LangChain Callback Stream
+
+Drains `_terminal_callback.drain()` (the global `DroneTerminalCallbackHandler` instance) every 100ms and sends batches:
+```json
+{ "events": [
+  { "type": "agent", "text": "THINK  [claude-haiku-4-5-20251001]  Current mission state (T+34.2s)…" },
+  { "type": "tsp",   "text": "TOOL:compute_tsp_route  drone_x=12.3 drone_y=8.4 battery=72…" },
+  { "type": "ws-in", "text": "TOOL-RESULT  {\"route\": [\"r2\", \"r4\", \"r1\"], \"estimated_…" },
+  { "type": "agent", "text": "RESULT  With battery at 72%, prioritizing the two closest…" }
+]}
+```
+Multiple frontend clients can connect simultaneously. The drain is non-blocking and returns an empty list if no events are queued.
+
+### `GET /stream` — SSE Commentary
+
+An SSE endpoint that streams a 1–2 sentence mission narration for the current phase. Uses the raw `anthropic` SDK's `client.messages.stream()` context manager (not LangChain) since streaming and callbacks together require the raw SDK. Each text chunk is yielded as:
+```
+data: {"text": "The drone is descending", "done": false}
+data: {"text": " to 1.5m hover altitude,", "done": false}
+data: {"text": "", "done": true}
+```
+The system prompt instructs Claude to be "technical but accessible" and to focus on the most interesting aspect of the current moment. The user message includes a rich natural-language description of the phase, battery level interpretation, optical flow status, and mission progress.
+
+### `POST /mission/save` — RAG Store Write
+
+Receives `{events, telemetry}` and calls `MissionStore.save_mission()`. The telemetry includes `pollinatedIds`, `discoveredIds`, `battery_pct`, and `time`. Returns `{ok, total_missions}`.
+
+### `POST /feedback` — Bandit Reward Signal
+
+Receives `{phase, of_stability, battery_pct, success}` from the frontend (sent after each pollination). Calls `bandit.update_reward()` to adjust the UCB1 arm weights for the matching context bucket.
+
+---
+
+## LangChain Integration
+
+### `DroneTerminalCallbackHandler` (`drone_callback.py`)
+
+Subclasses `langchain_core.callbacks.BaseCallbackHandler`. A thread-safe `collections.deque(maxlen=300)` accumulates events. A `threading.Lock` protects both `_push()` and `drain()` since LangChain callbacks can fire from executor threads.
+
+**Hooks implemented:**
+
+```python
+on_chat_model_start(serialized, messages, ...)
+  # Fires as the LLM call starts — extracts model name and last message preview
+  # → type="agent", text="THINK  [claude-haiku-4-5-20251001]  {first 70 chars}…"
+
+on_llm_end(response, ...)
+  # Fires when LLM returns — extracts first generation text
+  # → type="agent", text="RESULT  {first 150 chars}"
+
+on_tool_start(serialized, input_str, ...)
+  # Fires before each tool execution — maps tool name to terminal type
+  # compute_tsp_route/estimate_battery_range → type="tsp"
+  # recommend_confidence_threshold/plan_scan_pattern → type="detect"
+  # → text="TOOL:{name}  {first 80 chars of input}"
+
+on_tool_end(output, ...)
+  # Fires after tool returns — shows result
+  # → type="ws-in", text="TOOL-RESULT  {first 100 chars}"
+
+on_agent_action(action, ...)     → type="tsp",   text="AGENT-ACT  tool={name}  input={input}"
+on_agent_finish(finish, ...)     → type="agent", text="AGENT-FIN  {output}"
+on_llm_error(error, ...)         → type="error", text="LLM-ERROR  {message}"
+on_tool_error(error, ...)        → type="error", text="TOOL-ERROR  {message}"
+```
+
+**Fallback.** If `langchain_core` is not installed, `drone_callback.py` defines no-op stub classes for `BaseCallbackHandler` and `LLMResult`. The rest of the server imports `DroneTerminalCallbackHandler` and it works — it just does nothing. The `CALLBACK_AVAILABLE` flag in `agent_server.py` controls whether it's attached to model calls.
+
+---
+
+## RAG Mission Memory
+
+### `MissionStore` (`mission_store.py`)
+
+**Embeddings.** `HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")` from `langchain-community`. This model produces 384-dimensional vectors, runs entirely on CPU (no GPU required), and downloads ~90MB on first run. `normalize_embeddings=True` ensures cosine similarity is equivalent to dot-product similarity, which Chroma uses internally.
+
+**Vector store.** `Chroma(collection_name="drone_missions", persist_directory=".../mission_history/")` from `langchain-community`. Chroma persists to SQLite under the hood. The collection accumulates mission documents across server restarts — the drone's knowledge of past flights grows over time.
+
+**Document format.** Each saved mission becomes one Chroma document. The page content is a prose summary built from the event log and final telemetry:
+```
+"Successfully pollinated 6/8 discovered flowers (75% success rate).
+Mission duration 124s. moderate battery use (final 61%).
+Phase sequence: Arming sequence → Taking off to 8m → Scanning — lawnmower pass
+  → Computing optimal route → Approaching target → ...
+Key events: Flower detected — r1 (3.2m lateral); Flower detected — r3 (1.8m lateral);
+  POLLINATION COMPLETE — r1; POLLINATION COMPLETE — r3; ..."
+```
+Metadata stored: `pollinated` (int), `discovered` (int), `battery_final` (float), `duration_s` (float). These appear alongside retrieved documents for quick interpretation.
+
+**Retrieval.** `similarity_search(query, k=min(3, collection_count))` returns the top-k documents by cosine similarity. The query is a compact state descriptor: `"phase=approach battery=72 stability=0.71 discovered=5 pollinated=2"`. The returned documents are formatted as:
+```
+Relevant past mission experiences:
+  [1] Successfully pollinated 7/8 ... (pollinated=7, battery_end=58%, duration=118s)
+  [2] Successfully pollinated 5/7 ... (pollinated=5, battery_end=42%, duration=145s)
+  [3] Successfully pollinated 4/8 ... (pollinated=4, battery_end=39%, duration=162s)
+```
+This text block is appended to the Claude system prompt before each `/decide` call.
+
+**Graceful degradation.** If `langchain-community`, `chromadb`, or `sentence-transformers` are not installed, `MissionStore.available = False` and all methods are silent no-ops. The `RAG_AVAILABLE` flag in `agent_server.py` skips retrieval entirely when false.
+
+---
+
+## UCB1 Confidence Bandit
+
+### `ConfidenceBandit` (`confidence_bandit.py`)
+
+A contextual multi-armed bandit that learns optimal detection confidence thresholds from mission experience.
+
+**Context bucketing.** The state space is factored into three independent dimensions:
+- **Phase tier**: `scanning` (scanning/planning), `approach` (descent/approach/target_lock/candidate_detected), `hover` (hover_align/pollinating)
+- **Quality tier**: `high` (of_stability > 0.7), `med` (0.4–0.7), `low` (< 0.4)
+- **Battery tier**: `high` (≥ 50%), `low` (< 50%)
+
+This gives 3 × 3 × 2 = 18 possible contexts. Each is identified by a string key like `"approach_med_high"`.
+
+**Arms.** Three threshold options per context: `[0.40, 0.60, 0.75]`. A lower threshold is more permissive (transitions happen earlier but may be premature). A higher threshold is more conservative (may be too slow to commit).
+
+**UCB1 score.** Each arm tracks `[pulls, reward_sum]`. The UCB1 selection formula:
+```
+ucb_score(arm) = reward_sum / pulls + sqrt(2 × log(total_pulls) / pulls)
+```
+The exploration bonus `sqrt(2 × log(total) / pulls)` is large for rarely-tried arms, encouraging exploration. As more data is gathered, the exploitation term (`reward_sum / pulls`) dominates and the bandit converges to the best arm.
+
+**Initialization.** New contexts start with `[[1, 0.5], [1, 0.5], [1, 0.5]]` — one phantom pull with neutral reward 0.5. This prevents division by zero and ensures all arms are initially explored roughly equally.
+
+**Reward signal.** `update_reward(phase, of_stability, battery_pct, success=True/False)` converts `success` to `+1.0` / `-1.0` and adds it to the currently-best arm for that context. In practice, `success=True` is sent after each pollination, `success=False` could be sent on timeout (not currently wired but the endpoint exists via `/feedback`).
+
+Over many missions, the bandit learns: for example, in `approach_low_low` (degraded sensor, low battery), a 0.40 threshold might get more reward than 0.75 because committing quickly before battery runs out is better than waiting for high confidence that may never come.
+
+---
+
+## End-to-End Data Flow
+
+This is the complete flow for a single live mode frame tick:
+
+```
+requestAnimationFrame(ts)
+│
+├── dt = (ts - lastTs) / 1000   // capped at 100ms
+│
+├── nav.tick(dt, latestInference)
+│   ├── time += dt, frameIdx++
+│   ├── if inference: processInference(inf)
+│   │   ├── update flower confidences from detections
+│   │   ├── promote flower states (scanned → candidate → locked)
+│   │   └── add server-discovered flowers to discoveredIds
+│   ├── stepPhase(dt)   // advance FSM based on current phase
+│   │   └── doScanning → doProximityDetection
+│   │       ├── check each undiscovered flower < 4.5m
+│   │       ├── mark discovered, update confidence
+│   │       └── rerun computeTSPRoute if new discovery
+│   ├── updateHistory()  // append to posHistory, altHistory
+│   └── buildFrame()
+│       ├── getSensorAtDistance(z * 39.37)
+│       ├── computeOpticalFlowState(sample, frameIdx)
+│       └── return LiveFrame { drone, sensor, flowers, phase, ... }
+│
+├── ws.send(lf.drone, lf.flowers, lf.phase)   // → :8765
+│   └── inference_server receives, renders frame, detects, returns
+│       └── latestInference updated on next RAF tick
+│
+├── if frameIdx % 30 == 0:
+│   agent.requestDecision(lf)   // debounced 200ms → POST :8766/decide
+│       └── agent returns AgentDecision
+│           ├── nav.applyAgentDecision(decision)
+│           │   ├── tspRoute = decision.priorityOverride (if valid)
+│           │   └── currentConfidenceThreshold = decision.confidenceThreshold
+│           └── agentState updated
+│
+├── if lf.phase != lastPhase:
+│   agent.startCommentaryStream(lf)   // SSE :8766/stream
+│       └── streams text chunks → onCommentary → AgentCommentaryPanel
+│
+├── liveToReplay(lf) → ReplayFrame   // adapter for existing panels
+│
+└── setFrame(lfWithAgent)   // React state update → re-render all panels
+
+Every 100ms (in agent server):
+  _terminal_callback.drain()
+  → send to all /terminal WebSocket clients
+  → liveInferenceEngine.pushTerminal(type, text)
+  → terminal buffer → TerminalPanel (synced every 250ms)
+
+On nav.done (mission complete):
+  agent.saveMission(lf)   // POST :8766/mission/save
+  → MissionStore.save_mission(events, telemetry)
+  → build prose document from event log
+  → embed with all-MiniLM-L6-v2
+  → add to Chroma collection
+  → available for retrieval in next session
+```
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js 18+
+- Python 3.11+
+- (Optional) `ANTHROPIC_API_KEY` for LLM features
+
+### 1. Install frontend dependencies
+```bash
+npm install
+```
+
+### 2. Install Python backend dependencies
+```bash
+# Inference server (minimal)
+pip install -r drone-cv-system/server/requirements_server.txt
+
+# Agent server (LangChain + Chroma + sentence-transformers)
+pip install -r drone-cv-system/server/requirements_agent.txt
+```
+
+> **Note:** `sentence-transformers` downloads `all-MiniLM-L6-v2` (~90MB) on first use. This is a one-time download cached in `~/.cache/huggingface/`.
+
+### 3. Set Anthropic API key (optional — falls back to mock)
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Without an API key, the agent server runs in mock mode: decisions return `action='continue'` with fixed 0.75 threshold, SSE commentary returns placeholder text, and all LangChain imports are skipped. The simulation is fully functional either way.
+
+### 4. Start both backend servers
+```bash
+# Option A — single script
+bash drone-cv-system/server/start_servers.sh
+
+# Option B — separate terminals
+python3 drone-cv-system/server/inference_server.py   # :8765
+python3 drone-cv-system/server/agent_server.py       # :8766
+```
+
+### 5. Start the frontend
+```bash
+npm run dev
+```
+
+Open http://localhost:5173. Select **REPLAY MODE** for the pre-generated deterministic simulation or **LIVE MODE** for the real-time autonomous mission with WebSocket inference and LLM agent.
+
+In live mode, click the **TERMINAL** button in the header to open the terminal panel. Use the **AI** filter tab to see only LangChain callback events — LLM thoughts, tool calls, and tool results appear in real time as the agent reasons about the mission.
+
+---
+
+## Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | — | Claude API key. Unset = mock mode |
+| Inference server port | `8765` | WebSocket endpoint |
+| Agent server port | `8766` | HTTP/SSE/WS agent endpoints |
+| Vite dev server port | `5173` | Frontend |
+| RAG persist dir | `drone-cv-system/mission_history/` | Chroma SQLite files |
+| Lawnmower default spacing | `4.5m` | Overridable by agent `plan_scan_pattern` tool |
+| Agent decision interval | 30 frames (~1s) | `AGENT_DECISION_EVERY_N_FRAMES` in `liveInferenceEngine.ts` |
+| Terminal drain interval | 100ms | Callback queue poll in `/terminal` WS handler |
+| Terminal state sync | 250ms | `setInterval` in `liveInferenceEngine` |
+| Decision debounce | 200ms | In `AgentClient.requestDecision()` |
+| Proximity detect radius | 4.5m | `PROXIMITY_DETECT_RADIUS` in `autonomousNavigator.ts` |
+| Patrol altitude | 8.0m | `PATROL_ALT` |
+| Hover altitude | 1.5m | `HOVER_ALT` |
+| Pollination dwell | 3.0s | `POLLINATE_DWELL_S` |
+| Max LLM tool rounds | 3 | In `_llm_decide()` |
+| RAG retrieval count | 3 | `k=3` in `retrieve_context()` |
+
+---
+
 ## Physical Drone Hardware Stack
 
 ### Airframe & Propulsion
 
 | Component | Spec |
 |---|---|
-| Frame | F450 glass-fiber quad, 450 mm wheelbase |
-| Landing gear | Plastic landing skid |
+| Frame | F450 glass-fiber quad, 450 mm wheelbase, plastic landing skid |
 | Motors | 4× brushless — 2212 920 KV or 2213 935 KV |
 | ESCs | 4× 20 A ESC |
 | Propellers | 4× 9450 self-tightening (2× CW, 2× CCW) |
@@ -211,7 +996,7 @@ python3 main.py
 
 ### RC Control (Manual Override Only)
 
-The **FS-i6X transmitter + FS-iA6B receiver** is connected to Pixhawk RC IN in PPM mode and is used exclusively for manual override. The entire autonomous mission runs without any RC input. The RC link provides:
+The **FS-i6X transmitter + FS-iA6B receiver** connects to Pixhawk RC IN in PPM mode and is used exclusively for manual override. The entire autonomous mission runs without any RC input. The RC link provides:
 
 - **CH5** → Flight mode switching (GUIDED ↔ STABILIZE/LOITER)
 - **CH7** → RTL/failsafe
@@ -224,16 +1009,14 @@ The **FS-i6X transmitter + FS-iA6B receiver** is connected to Pixhawk RC IN in P
 - **Barometer:** MS5611 for coarse altitude hold
 - **GPS:** M8N u-blox module with integrated compass on foldable mast
 - **MAVLink output:** TELEM2 port (SERIAL1 in ArduCopter) at 921 600 baud
-- **Motor mixing:** PWM outputs MAIN OUT 1–4 drive the 4× 20 A ESCs; all stabilization loops (rate PID, attitude PID, altitude hold) run on Pixhawk — the companion computer only sends high-level `SET_POSITION_TARGET_LOCAL_NED` setpoints
-- **AUX OUT 1:** Drives the pollen-dispenser servo via MAVLink `DO_SET_SERVO` (SERVO9_FUNCTION = 0, passthrough)
+- **Motor mixing:** PWM outputs MAIN OUT 1–4 drive the 4× 20 A ESCs. All stabilization loops (rate PID, attitude PID, altitude hold) run on Pixhawk — the companion computer only sends high-level `SET_POSITION_TARGET_LOCAL_NED` setpoints
+- **AUX OUT 1:** Drives the pollen-dispenser servo via MAVLink `DO_SET_SERVO` (`SERVO9_FUNCTION = 0`, passthrough)
 - **GUIDED mode:** Required for autonomous mission; RC override to any other mode pauses Python position commands immediately
 
-### Companion Computer — Raspberry Pi
+### Companion Computer — Raspberry Pi 4
 
 - Runs full Python CV + mission stack at ~20 Hz mission tick
 - Communicates with Pixhawk over hardware UART (`/dev/ttyAMA0`, 921 600 baud) via pymavlink — Bluetooth must be disabled to free the hardware UART: `dtoverlay=disable-bt` in `/boot/config.txt`
-- **Inference accelerator: Google Coral USB Edge TPU** — connected via USB 3.0, provides ~4 TOPS INT8 inference, achieving near real-time flower detection on EdgeTPU-compiled TFLite models
-- Falls back to ONNX Runtime CPU (~8–12 FPS at 640×640) if Coral is not detected
 - Sends position setpoints + arming commands to Pixhawk via MAVLink
 - Triggers pollination servo via `FlightController.trigger_aux_servo()` → MAVLink `DO_SET_SERVO` on AUX OUT 1
 
@@ -249,7 +1032,7 @@ The Coral USB Edge TPU is the primary inference accelerator:
 | Runtime | `libedgetpu1-std` (apt) + `pycoral` (pip) |
 | Compile | `edgetpu_compiler flower_detector.tflite → flower_detector_edgetpu.tflite` |
 
-Input tensor required by Coral: `[1, 320, 320, 3]` **uint8 NHWC** — completely different from ONNX which requires `[1, 3, 640, 640]` float32 NCHW. The `CoralDetector` and `FramePreprocessor.read_frame_for_coral()` handle this conversion.
+**Important tensor format difference:** Coral requires `[1, 320, 320, 3]` **uint8 NHWC** input — completely different from ONNX which requires `[1, 3, 640, 640]` float32 NCHW. The `CoralDetector` and `FramePreprocessor.read_frame_for_coral()` handle this conversion.
 
 ### Camera
 
@@ -261,7 +1044,7 @@ Downward-facing camera (CSI or USB) capturing the garden below the drone:
 
 ### Pollination Mechanism
 
-A **micro servo** arm actuates a lightweight **pollen-dispenser assembly** (pollen reservoir + dispensing gate/rotor + mounting bracket) mounted below the drone frame. No vibration motor — the servo arm physically positions the dispenser over the flower and a gravity/air-puff mechanism releases pollen during the 2.5-second dwell.
+A **micro servo** arm actuates a lightweight pollen-dispenser assembly (pollen reservoir + dispensing gate + mounting bracket) mounted below the drone frame. The servo arm physically positions the dispenser over the flower and a gravity/air-puff mechanism releases pollen during the 2.5-second dwell.
 
 **Actuation sequence (via `FlightController.trigger_aux_servo()`):**
 
@@ -269,7 +1052,7 @@ A **micro servo** arm actuates a lightweight **pollen-dispenser assembly** (poll
 2. Hold 2.5 s (pollen transfer dwell)
 3. Pixhawk receives `DO_SET_SERVO` → AUX OUT 1 → 1000 µs PWM → servo arm retracts
 
-Hardware PWM from Pixhawk AUX ensures timing accuracy and the command is logged in DataFlash. The GPIO fallback (RPi PWM on pin 18) is available for bench testing without a Pixhawk.
+Hardware PWM from Pixhawk AUX ensures timing accuracy and the command is logged in DataFlash. A GPIO fallback (RPi PWM on pin 18) is available for bench testing without a Pixhawk.
 
 ### Wiring Diagram
 
@@ -359,7 +1142,7 @@ Builds on `MAVLinkInterface` to provide mission-level commands:
 
 ### Telemetry Messages Consumed
 
-| MAVLink Message ID | Rate | Fields Used |
+| MAVLink Message | Rate | Fields Used |
 |---|---|---|
 | `ATTITUDE` (30) | 50 Hz | roll, pitch, yaw, yawspeed |
 | `GLOBAL_POSITION_INT` (33) | 10 Hz | lat, lon, relative_alt, vx, vy, vz, hdg |
@@ -382,7 +1165,7 @@ Handles camera input regardless of source (USB UVC, CSI ribbon, file). Steps app
 3. Resize to 640×640 using `INTER_LINEAR`
 4. Convert BGR → RGB
 5. Normalize pixel values to `[0, 1]` float32
-6. Expand dims to `[1, 3, 640, 640]` NCHW tensor layout
+6. Expand dims to `[1, 3, 640, 640]` NCHW tensor layout for ONNX, or `[1, 320, 320, 3]` uint8 NHWC for Coral
 
 ### YOLOv8 Flower Detector (`flower_detector.py`)
 
@@ -412,7 +1195,7 @@ class Detection:
     center_x, center_y: float   # bbox center
     width, height: float
     area: float
-    bearing: Optional[np.ndarray]    # unit vector camera→flower
+    bearing: Optional[np.ndarray]       # unit vector camera→flower
     distance_estimate: Optional[float]  # meters (from DepthEstimator)
 ```
 
@@ -480,35 +1263,32 @@ Estimates physical distance to detected flowers (meters) from:
 
 2. Augmentation (Ultralytics built-in)
    Mosaic (4-image), random flip, HSV jitter (hue ±0.015, sat ±0.7, val ±0.4)
-   Scale (±50%), translate (±10%), rotation (±0°), cutmix (close-range images)
+   Scale (±50%), translate (±10%), cutmix (close-range images)
 
 3. Fine-tuning command
    python train.py --model yolov8n.pt --data flowers.yaml \
      --epochs 100 --imgsz 640 --batch 16 --lr0 0.01 \
      --patience 20 --device 0
 
-4. Evaluation
-   mAP@50:   target >0.72
-   mAP@50-95: target >0.45
-   Precision: target >0.70
-   Recall:   target >0.65
+4. Evaluation targets
+   mAP@50:    >0.72
+   mAP@50-95: >0.45
+   Precision: >0.70
+   Recall:    >0.65
 
 5. Export to ONNX
    from ultralytics import YOLO
    model = YOLO('best.pt')
    model.export(format='onnx', imgsz=640, simplify=True, opset=12)
    # Output: best.onnx  (~6.3 MB)
+
+6. Export to EdgeTPU TFLite (for Coral)
+   model.export(format='tflite', int8=True, imgsz=320)
+   edgetpu_compiler flower_detector.tflite
+   # Output: flower_detector_edgetpu.tflite
 ```
 
-### ONNX Export for Raspberry Pi
-
-ONNX Runtime on the Raspberry Pi 4 runs the model in **CPU execution provider** mode. The export uses `opset=12` for maximum compatibility. The model is loaded once at startup and the session is reused across frames to avoid repeated initialization overhead (~800 ms first load).
-
-```python
-import onnxruntime as ort
-sess = ort.InferenceSession('flower_detector.onnx',
-    providers=['CPUExecutionProvider'])
-```
+ONNX Runtime on the Raspberry Pi 4 runs the model in **CPU execution provider** mode with `opset=12` for maximum compatibility. The session is loaded once at startup and reused across all frames (first load ~800ms).
 
 ### Detection Dataflow
 
@@ -532,82 +1312,9 @@ StateMachine.process_detections()
 
 ---
 
-## Mission State Machine (Real + Simulated)
+## Pollination Manager
 
-The 13-phase state machine is implemented twice — identically — in both the Python `StateMachine` class (`drone-cv-system/mission/state_machine.py`) and the TypeScript `AutonomousNavigator` class (`src/simulation/autonomousNavigator.ts`). This ensures the simulation precisely mirrors real behavior.
-
-### The 13 Phases
-
-| Phase | Real Drone Behavior | Simulation Behavior |
-|---|---|---|
-| `idle` | System powered on, sensors initializing | Drone on ground, all sensor values at rest |
-| `arming` | Pre-flight checks: EKF health, GPS lock, battery >20%, geofence valid. `arm()` command sent. | 2-second dwell, sensor values ramp to armed state |
-| `takeoff` | `MAV_CMD_NAV_TAKEOFF` to 8m patrol altitude. Blocks until `relative_alt > 7.7m`. | Altitude ramps 0→8m over 3 seconds, z velocity peaks at ~2.7 m/s |
-| `transit` | `SET_POSITION_TARGET_LOCAL_NED` to first waypoint at 8m. | Drone interpolates XY toward waypoint, yaw tracks heading |
-| `scanning` | Drone holds position. Camera running, YOLOv8 analyzing each frame. Confidence accumulation begins. | Lawnmower sweep passes. Proximity detection + server detections accumulate |
-| `candidate_detected` | At least one detection confidence >0.40. Mission records target flower ID. | Confidence ramps 0.40→0.75 over 0.8 seconds |
-| `target_lock` | Confidence ≥ 0.75. Target locked, descent authorized. | Reticle tightens to 1.0, camera zooms to target, confidence held at 0.85+ |
-| `descent` | Precision hover setpoints descend from 8m → 1.5m. Rangefinder actively monitored. | Altitude falls over 1.5 seconds, optical flow quality peaks as altitude drops |
-| `hover_align` | XY alignment loop active at 1.5m. `precision_hover()` with ±0.1m tolerance. | 0.5-second dwell with sensor jitter, hover instability model active |
-| `pollinating` | Servo arm deploys, vibration motor runs 2s, retract. | Particle effects, 1.5-second dwell, flower state → pollinated |
-| `ascent` | `SET_POSITION_TARGET_LOCAL_NED` climbs back to 8m. | Altitude ramps 1.5→8m over 1.2 seconds |
-| `resume_transit` | Navigate to next flower target. | Same as transit but between internal waypoints |
-| `mission_complete` | All targets visited. Return to home (2,2). `MAV_CMD_NAV_LAND`. Disarm. | Drone flies to home position, then altitude ramps to 0 |
-
-### Phase Transitions & Guards
-
-Transitions are guarded by sensor state, not wall-clock time (real drone) or frame index (simulation):
-
-```
-arming        → takeoff       : armed == True AND EKF healthy
-takeoff       → transit       : relative_alt > patrol_alt − 0.3m
-scanning      → candidate     : any detection confidence > 0.40
-candidate     → target_lock   : best confidence > 0.75
-target_lock   → descent       : lock confirmed for >0.5s
-descent       → hover_align   : rangefinder distance < 1.8m
-hover_align   → pollinating   : XY position error < 0.1m
-pollinating   → ascent        : pollination dwell timer elapsed
-ascent        → resume_transit: relative_alt > patrol_alt − 0.3m
-resume_transit→ scanning      : within 1m of next waypoint
-mission_complete→ landed      : relative_alt < 0.15m
-```
-
----
-
-## Path Planning Agent — TSP Solver
-
-After the scanning phase discovers all flowers in the garden, the mission transitions to a **2.5-second planning phase** in which the TSP (Travelling Salesman Problem) route is computed.
-
-**Algorithm: Greedy nearest-neighbor heuristic**
-
-```
-1. Start from current drone position
-2. candidates = all discovered flower IDs not yet pollinated
-3. While candidates not empty:
-   a. Find flower in candidates closest (Euclidean) to current position
-   b. Append it to route
-   c. Set current position = that flower's position
-   d. Remove from candidates
-4. Return ordered route list
-```
-
-This is implemented in three places:
-
-| Location | File | Used For |
-|---|---|---|
-| TypeScript | `autonomousNavigator.ts` `computeTspRoute()` | Live mode client-side TSP |
-| TypeScript | `randomMissionGenerator.ts` `computeTspRoute()` | Initial route for live mode garden |
-| Python | `inference_server.py` `_compute_tsp_suggestion()` | Server-side TSP suggestion sent back to client |
-
-The server-side TSP suggestion is merged into the client route on each WebSocket response — if the server detects flowers the client hasn't yet discovered, those are inserted into the route at the nearest position.
-
-**Why nearest-neighbor over exact solvers?** With 6–10 flowers, nearest-neighbor gives routes within ~15–20% of optimal and runs in O(n²). An exact solver (branch-and-bound or dynamic programming for n ≤ 15) would also be feasible, but nearest-neighbor is sufficient for this garden scale and avoids any latency spike.
-
----
-
-## Pollination Manager (`pollination_manager.py`)
-
-Tracks flower target state and controls the physical pollination hardware.
+`drone-cv-system/mission/pollination_manager.py` tracks flower target state and controls the physical pollination hardware.
 
 **Garden state tracking:**
 
@@ -623,816 +1330,37 @@ class FlowerTarget:
     last_confidence: float = 0.0
 ```
 
-**Pollination sequence (triggered by `StateMachine` on entering `pollinating` phase):**
+**Pollination sequence** (triggered by `StateMachine` on entering `pollinating` phase):
 
 ```python
 def trigger_pollination(self, flower_id: str):
-    # 1. Extend servo arm to contact position
-    GPIO.output(SERVO_PIN, GPIO.HIGH)
-    self._set_pwm(SERVO_PIN, CONTACT_DUTY_CYCLE)  # ~7.5% = 90° rotation
+    # 1. Extend servo arm to contact position via MAVLink AUX channel
+    flight_controller.trigger_aux_servo(channel=9, pwm=1700)  # deploy
 
-    # 2. Activate vibration motor
-    self._set_pwm(MOTOR_PIN, MOTOR_DUTY_CYCLE)    # full speed
+    # 2. Dwell 2.5 seconds for pollen transfer
+    time.sleep(2.5)
 
-    # 3. Dwell 2 seconds for pollen transfer
-    time.sleep(2.0)
+    # 3. Retract servo
+    flight_controller.trigger_aux_servo(channel=9, pwm=1000)  # stow
 
-    # 4. Retract motor + servo
-    self._set_pwm(MOTOR_PIN, 0)
-    self._set_pwm(SERVO_PIN, STOW_DUTY_CYCLE)     # ~2.5% = 0° rotation
-
-    # 5. Mark flower pollinated
+    # 4. Mark flower pollinated
     self.targets[flower_id].pollinated = True
 ```
 
----
-
-## Python Inference Server
-
-The inference server (`drone-cv-system/server/inference_server.py`) bridges the browser simulator and the Python CV system. It runs as a FastAPI application with a **WebSocket endpoint** at `ws://localhost:8765/inference`.
-
-### WebSocket Protocol
-
-**Client → Server (every ~100ms):**
-
-```json
-{
-  "drone": {
-    "x": 12.3,
-    "y": 8.7,
-    "z": 8.0,
-    "yaw": 45.0
-  },
-  "flowers": [
-    { "id": "r1", "x": 10.2, "y": 6.4, "radius": 0.8,
-      "primaryColor": "#ff6b9d", "accentColor": "#ff9ebe",
-      "state": "discovered", "confidence": 0.62 }
-  ],
-  "phase": "scanning"
-}
-```
-
-**Server → Client (immediate response):**
-
-```json
-{
-  "detections": [
-    {
-      "id": "r1",
-      "confidence": 0.74,
-      "cls": "flower_open",
-      "bbox": [280, 190, 360, 275]
-    }
-  ],
-  "phaseSuggestion": "candidate_detected",
-  "targetId": "r1",
-  "inferenceMs": 23.4,
-  "inferenceMode": "onnx",
-  "framePng": "<base64 JPEG string>",
-  "tspSuggestion": ["r1", "r3", "r2", "r5"]
-}
-```
-
-`framePng` is a base64-encoded JPEG of the 640×640 synthetic PIL frame that was fed into the detector. The browser renders this as the camera panel background in live mode, making the "camera feed" show exactly what the detector saw.
-
-### Scene Renderer (`scene_renderer.py`)
-
-Generates a synthetic but photorealistic 640×640 bird's-eye camera frame using PIL, representing what the drone's downward-facing camera would see at its current altitude and orientation.
-
-**Projection pipeline:**
-
-```
-Garden coordinates (x, y meters)
-         ↓
-Translate relative to drone position: (dx, dy) = (flower.x − drone.x, flower.y − drone.y)
-         ↓
-Rotate by drone yaw angle (camera body frame)
-         ↓
-Scale by altitude: pixels/meter = FOCAL_LENGTH / drone.z
-         ↓
-Translate to image center: pixel = (320 + dx_m × scale, 320 + dy_m × scale)
-```
-
-**Flower rendering per cluster (cached per unique `id + state`):**
-
-1. Draw 6-petal arrangement — each petal is a filled ellipse, rotated 60° apart, with `primaryColor`
-2. Draw center pistil circle with `accentColor`
-3. Draw stem (rectangle, dark green) + 2 procedural leaves (ellipses with rotation)
-4. Apply per-petal shading based on angular orientation for depth
-5. Composite onto background
-
-**Post-processing effects:**
-- Gaussian blur proportional to drone altitude (simulates camera focus falloff at high altitude: `sigma = drone.z × 0.35`)
-- Subtle color grading (warm tint)
-- Radial vignette
-- Output as 640×640 RGB array, optionally encoded to JPEG at quality=72
-
-### Detection Bridge (`detection_bridge.py`)
-
-Unified detection interface with two backends that the rest of the server code never needs to distinguish between:
-
-**ONNX path:**
-
-```
-640×640 PIL frame
-       ↓
-FramePreprocessor (normalize + tensor)
-       ↓
-onnxruntime.InferenceSession.run()  →  [1, 84, 8400]
-       ↓
-Confidence filter (>0.20) + class filter + NMS
-       ↓
-Spatial geo-matching: for each YOLO box, project flowers to pixel space
-  and find the garden flower whose projected center is closest to the bbox center
-       ↓
-List[{id, confidence, cls, bbox}]
-```
-
-Runs with a **2-second timeout**; if inference takes longer (e.g., model loading cold start), falls back to mock results for that frame.
-
-**Mock path (always available as fallback):**
-
-Computes physics-based confidence for each flower without any camera frame:
+GPIO fallback for bench testing (no Pixhawk required):
 
 ```python
-horiz_dist = sqrt((flower.x − drone.x)² + (flower.y − drone.y)²)
-altitude_m = drone.z
-
-# Altitude-dependent effective range
-effective_range = max(1.0, altitude_m × 0.8)
-
-# Horizontal falloff
-dist_confidence = max(0, 1.0 − horiz_dist / effective_range)
-
-# Sensor quality at this altitude
-sensor = interpolate_sensor(altitude_m × 39.37)  # m → inches
-strength_factor = sensor.strength / 255.0
-quality_factor = sensor.flow_quality / 150.0     # 150 = peak quality
-
-confidence = dist_confidence × strength_factor × quality_factor
-```
-
-### Planning Agent (Server-Side TSP)
-
-After detections are assembled, the server runs a second nearest-neighbor TSP pass over all detected flowers and returns `tspSuggestion` — an ordered list of flower IDs. The client merges this with its own route, inserting any newly discovered IDs at the nearest point in the existing route.
-
----
-
-## Web Simulator — How It Works
-
-### Mode 1: Deterministic Replay
-
-The entire 90-second mission is **pre-generated once** into 2700 `ReplayFrame` objects (30 fps × 90 seconds) when the app first loads. There is no physics simulation, no randomness, and no server connection during playback. Every panel reads from a single `currentFrame` prop.
-
-The `useReplayEngine` hook drives a `requestAnimationFrame` loop that:
-
-1. Computes wall-clock delta since last frame
-2. Multiplies by speed factor (1×/2×/4×)
-3. Accumulates into a time counter
-4. Converts to frame index: `frameIndex = floor(time × 30)`
-5. Updates `currentFrame`, `positionHistory` (90-frame window), `altitudeHistory` (150-sample window), `accumulatedEvents` (100-entry window)
-
-**`seekTo(time)`** rebuilds all history windows by iterating backwards through the pre-generated frames — no state needs to be stored per-frame because the frames are already fully materialized.
-
-### Mode 2: Live Inference
-
-Mode 2 runs the full autonomy loop as a real-time simulation against the Python inference server. The `useLiveInferenceEngine` hook:
-
-1. Generates a random garden via `randomMissionGenerator.ts`
-2. Spawns the Python server via `POST /api/start-inference-server`
-3. Opens a `WsClient` WebSocket connection to `ws://localhost:8765/inference`
-4. Starts a `requestAnimationFrame` loop that ticks `AutonomousNavigator.tick(dt)`
-5. Every 100ms, sends drone state + flower list to the server
-6. Receives detections + phase suggestion + TSP suggestion + frame PNG
-7. Feeds inference results back into `AutonomousNavigator.processInference(result)`
-8. Exposes `LiveFrame` state to all UI panels via `liveToReplay()` adapter
-
-**Terminal buffering:** The engine accumulates `TerminalEntry` objects in a `useRef` buffer (to avoid re-renders on every log) and syncs to state every 250ms via `setInterval`.
-
----
-
-## Autonomous Navigator (TypeScript)
-
-`src/simulation/autonomousNavigator.ts` is the TypeScript implementation of the full mission state machine for live mode. It runs at ~30 fps driven by the RAF loop.
-
-### Phase State Machine
-
-Each phase has a dedicated handler method called on every `tick(dt)`:
-
-```typescript
-tick(dt: number): void {
-    switch (this.phase) {
-        case 'idle':              this.doIdle(); break;
-        case 'arming':            this.doArming(dt); break;
-        case 'takeoff':           this.doTakeoff(dt); break;
-        case 'scanning':          this.doScanning(dt); break;
-        case 'planning':          this.doPlanning(dt); break;
-        case 'approach':          this.doApproach(dt); break;
-        case 'descent':           this.doDescent(dt); break;
-        case 'hover_align':       this.doHoverAlign(dt); break;
-        case 'pollinating':       this.doPollinating(dt); break;
-        case 'ascent':            this.doAscent(dt); break;
-        case 'resume':            this.doResume(dt); break;
-        case 'mission_complete':  this.doMissionComplete(dt); break;
-        case 'landing':           this.doLanding(dt); break;
-    }
-}
-```
-
-**Position interpolation:** All movement phases linearly interpolate from a start position to a target position using a 0→1 progress variable accumulated from `dt / phaseDuration`. This gives smooth deterministic motion without physics integration.
-
-### Proximity Detection
-
-Called on every frame during `scanning` and `approach` phases, even without a server connection:
-
-```typescript
-doProximityDetection(): void {
-    for (const flower of this.flowers) {
-        if (flower.state === 'undiscovered') continue;
-        const dist = Math.hypot(
-            flower.x - this.drone.x,
-            flower.y - this.drone.y
-        );
-        if (dist < 4.5) {
-            const conf = 0.9 - 0.6 × (dist / 4.5);
-            flower.confidence = Math.max(flower.confidence, conf);
-            if (flower.state === 'undiscovered') {
-                flower.state = 'discovered';
-                this.discoveredIds.push(flower.id);
-                // Recompute TSP route with newly discovered flower
-                this.tspRoute = this.computeTspRoute(this.discoveredIds);
-                this.tlog('nav', `proximity: discovered ${flower.id} at ${dist.toFixed(1)}m`);
-            }
-        }
-    }
-}
-```
-
-This means the drone will always make progress even if the Python server is offline — the proximity model is a reliable fallback.
-
-### TSP Route Computation
-
-```typescript
-computeTspRoute(ids: string[]): string[] {
-    let pos = { x: this.drone.x, y: this.drone.y };
-    const remaining = [...ids];
-    const route: string[] = [];
-    while (remaining.length > 0) {
-        let best = -1, bestDist = Infinity;
-        for (let i = 0; i < remaining.length; i++) {
-            const f = this.getFlower(remaining[i]);
-            const d = Math.hypot(f.x - pos.x, f.y - pos.y);
-            if (d < bestDist) { bestDist = d; best = i; }
-        }
-        route.push(remaining[best]);
-        pos = this.getFlower(remaining[best]);
-        remaining.splice(best, 1);
-    }
-    return route;
-}
-```
-
-The route is **recomputed every time a new flower is discovered** via proximity detection, so the purple TSP overlay on the map updates live as the drone scans the garden.
-
-### Terminal Logging
-
-Every significant event in the navigator is logged to the terminal panel with a type tag:
-
-```typescript
-tlog(type: TerminalEntryType, text: string): void {
-    if (!this.termCallback) return;
-    this.termCallback({
-        type,
-        text,
-        timestamp: this.elapsed,  // T+Xs format
-    });
-}
-```
-
-Log types: `sys` (connect/session events) · `phase` (state transitions) · `ws-out` (TX frames) · `ws-in` (RX frames) · `detect` (per-flower CV detections) · `tsp` (route updates) · `nav` (proximity events) · `error` (failures)
-
----
-
-## Live Inference Engine (`liveInferenceEngine.ts`)
-
-`src/simulation/liveInferenceEngine.ts` is the Preact hook that owns all live mode state and wires together the navigator, WebSocket client, and terminal buffer.
-
-**State managed:**
-
-```typescript
-interface LiveInferenceState {
-    frame: LiveFrame | null;
-    wsStatus: 'disconnected' | 'connecting' | 'connected' | 'error';
-    inferenceMode: 'onnx' | 'mock' | null;
-    lastInferenceMs: number;
-    terminalEntries: TerminalEntry[];
-    start: () => void;
-    stop: () => void;
-    restart: () => void;
-}
-```
-
-**Lifecycle:**
-
-```
-mount → start() called automatically
-  → generate random garden
-  → spawn Python server (POST /api/start-inference-server)
-  → connect WsClient (ws://localhost:8765/inference)
-  → emit SESSION START sys entry
-  → start RAF loop
-    each frame:
-      nav.tick(dt)
-      → setFrame(nav.buildFrame())
-    every 100ms:
-      ws.send({ drone, flowers, phase })
-    on ws.onMessage:
-      nav.processInference(result)
-      update inferenceMode + lastInferenceMs
-  → setInterval 250ms: flush termBufRef → setTerminalEntries
-```
-
-**SESSION START:** On each `start()`, a `sys` terminal entry is emitted with a timestamp, garden summary (flower count + positions), and the WebSocket URL. This gives the terminal a clear session delimiter when the mission is restarted.
-
----
-
-## WebSocket Client (`wsClient.ts`)
-
-`src/simulation/wsClient.ts` manages the WebSocket connection to the Python server with auto-reconnect.
-
-**Features:**
-
-- **Auto-reconnect:** On close or error, schedules a reconnect after 2 seconds (up to 10 attempts)
-- **Send queue:** If `send()` is called while connection is not yet open, the message is queued and flushed once the connection opens
-- **Phase tracking:** Tracks last sent phase so the server always has current context
-- **Logging:** Every TX frame is logged as `ws-out`, every RX frame as `ws-in` (with detection count + confidence %)
-- **onLog callback:** Constructor accepts an `onLog: TerminalLogFn` to pipe entries into the terminal buffer
-
-**TX frame logged as:**
-
-```
-[ws-out] scanning  pos=(12.3, 8.7, 8.0)  flowers=6
-```
-
-**RX frame logged as:**
-
-```
-[ws-in]  2 detections  best=74%  mode=onnx  12ms
+GPIO.setup(SERVO_PIN, GPIO.OUT)
+pwm = GPIO.PWM(SERVO_PIN, 50)   # 50 Hz
+pwm.start(7.5)                  # neutral
+pwm.ChangeDutyCycle(10.0)       # deploy (~1700µs @ 50Hz)
+time.sleep(2.5)
+pwm.ChangeDutyCycle(2.5)        # stow (~1000µs @ 50Hz)
 ```
 
 ---
 
-## Sensor Simulation System
-
-### Optical Flow Dataset
-
-`src/data/opticalFlowDataset.ts` builds a merged, sorted sensor lookup table from:
-
-1. **Real data** (`raw_opticalflow_data.csv`): 24 rows, measured at 0–276 inches (0–7.01m) altitude, at 12-inch intervals. Fields: `distance_in`, `sensor_distance` (mm), `strength` (0-255), `precision` (bits), `status`, `flow_vel_x`, `flow_vel_y`, `flow_quality`, `flow_state`.
-
-2. **Synthetic midpoints**: Linearly interpolated rows at 6-inch step resolution (fills gaps between real samples).
-
-3. **Extrapolated extension**: 3 rows beyond 276 inches (up to 315 inches / ~8m) to cover patrol altitude.
-
-**Merge strategy:** Real rows always override synthetic rows at the same distance. Final dataset is sorted by `distance_in` ascending.
-
-### Sensor Interpolation Engine
-
-`src/simulation/sensorInterpolation.ts` performs **smooth-step interpolated lookup** into the dataset:
-
-```typescript
-function interpolateSensor(targetInches: number): SensorRow {
-    const idx = binarySearch(dataset, targetInches);
-    const lo = dataset[idx], hi = dataset[idx + 1];
-    const t_raw = (targetInches − lo.distance_in) / (hi.distance_in − lo.distance_in);
-    // Smooth-step easing: gentler transitions between samples
-    const t = t_raw * t_raw * (3 − 2 * t_raw);
-    return lerpRow(lo, hi, t);  // linear interpolation of all numeric fields
-}
-```
-
-Called each simulation frame with `drone.z × 39.37` (meters → inches). Clamped to [0, 315] — no extrapolation beyond dataset range.
-
-### Physics-Based Optical Flow Model
-
-`src/simulation/opticalFlowModel.ts` applies physical corrections on top of interpolated sensor values:
-
-| Effect | Formula | Condition |
-|---|---|---|
-| Velocity scaling | `vx = flow_vel_x × (distance_in / 1000)` | Always — flow apparent motion scales with altitude |
-| Stability | `stability = flow_quality / 150` | Always — 150 is peak quality from real data at ~3m |
-| Noise | `noise = (1 − stability) × 0.15` | Always |
-| Effective quality | `effectiveQ = quality × (strength/255) × (1/precision)` | Weighted by signal integrity |
-| High-altitude degradation | stability −60%, quality −70% | `distance_in > 197` (~5m) |
-| Low-strength noise amplification | noise ×2.5 | `strength < 60` |
-| Quality-driven drift | pseudoRand seeded by frame index → `driftX/Y` | `flow_quality < 50` |
-| Hover instability | `sin(time × 3.2) × 0.04` oscillation on vx/vy | `altitude < 3m` |
-
-**Output `OpticalFlowState`:**
-
-```typescript
-{
-    vx, vy,                  // apparent velocities (m/s)
-    stability,               // 0–1 sensor health
-    noise,                   // 0–1 noise level
-    normalizedStrength,      // 0–1
-    effectiveQuality,        // 0–255 weighted
-    degraded,                // altitude > 5m
-    driftX, driftY,          // deterministic low-quality drift
-    hoverInstabilityX/Y      // near-ground oscillation
-}
-```
-
-### CV–Sensor Coupling
-
-Detection confidence is modulated by sensor quality **every frame**, ensuring that a drone with degraded optical flow also has worse detection:
-
-```typescript
-const stabilityFactor = 0.6 + 0.4 × sensor.stability;    // min 60%
-const strengthFactor  = 0.6 + 0.4 × sensor.normalizedStrength;  // min 60%
-
-let confidence = rawDetectionConfidence × stabilityFactor × strengthFactor;
-
-if (Math.abs(sensor.vx) > 1.5 || Math.abs(sensor.vy) > 1.5)
-    confidence × = 0.75;  // motion blur penalty
-
-if (sensor.effectiveQuality < 50)
-    confidence × = 0.60;  // heavy quality penalty
-
-if (sensor.stability > 0.7 && drone.z < 3.0)
-    confidence × = 1.15;  // stable hover boost (capped at 1.0)
-```
-
----
-
-## Replay Engine (`replayEngine.ts`)
-
-`src/simulation/replayEngine.ts` — the `useReplayEngine` Preact hook owns all replay state.
-
-```typescript
-interface ReplayState {
-    currentFrame: ReplayFrame;
-    isPlaying: boolean;
-    speed: 1 | 2 | 4;
-    currentTime: number;          // seconds
-    totalTime: number;            // 90
-    positionHistory: Position[];  // 90-frame rolling window
-    altitudeHistory: AltitudeSample[];  // 150-sample rolling window
-    accumulatedEvents: EventLogEntry[]; // last 100 events
-    play: () => void;
-    pause: () => void;
-    reset: () => void;
-    setSpeed: (s: 1|2|4) => void;
-    seekTo: (t: number) => void;
-}
-```
-
-**RAF loop detail:**
-
-```typescript
-// Each animation frame:
-const now = performance.now();
-const wallDt = (now − lastTimestamp) / 1000;  // seconds
-lastTimestamp = now;
-accumulatedTime += wallDt × speed;
-const targetFrame = Math.min(
-    Math.floor(accumulatedTime × 30),  // 30 fps
-    frames.length − 1
-);
-// advance from currentFrameIndex to targetFrame, collecting history
-```
-
-This design means the simulator correctly handles **frame skipping** at 2× and 4× speeds — history windows are still correctly populated even when frames are advanced multiple steps per RAF tick.
-
----
-
-## Mission Frame Generation
-
-### Deterministic Replay Frames (`missionGenerator.ts`)
-
-Generates the full 2700-frame `ReplayFrame[]` array once at startup. All randomness uses a **seeded PRNG** (mulberry32) so the output is identical on every run.
-
-**Garden layout (hardcoded for Mode 1):**
-
-```
-10 flower clusters at fixed positions:
-  f1=(5,5)  f2=(10,5)  f3=(15,5)  f4=(18,8)  f5=(15,12)
-  f6=(10,12) f7=(5,12) f8=(3,8)   f9=(8,16)  f10=(14,16)
-
-9 waypoints visiting 8 targets:
-  home(2,2) → f1 → f2 → f3 → f4 → f5 → f6 → f7 → f8 → home
-
-Drone home base: (2, 2)
-```
-
-**Per-frame computation:**
-
-```
-For each frame index i (0–2699):
-  time = i / 30
-
-  1. Determine mission phase from time thresholds
-  2. Interpolate drone XYZ position along waypoint route
-  3. Compute yaw toward next waypoint
-  4. Add ±0.03m sinusoidal position noise (seeded by frame index)
-  5. Compute sensor values:
-     a. battery = 1.0 − 0.28 × (time/90)
-     b. signal = 1.0 − 0.4 × (dist_from_home / 25)
-     c. sensorInterpolation(drone.z × 39.37) → optical flow state
-     d. opticalFlowModel(sensor, drone) → vx, vy, stability
-     e. ekf_confidence = 0.94 + 0.02 × sin(time × 2.1)
-  6. Compute detection confidence for current target flower
-  7. Update flower states based on phase
-  8. Generate events that fire at this timestamp
-  9. Assemble and return ReplayFrame
-```
-
-### Random Mission Generator (`randomMissionGenerator.ts`)
-
-Used by Mode 2 to generate a fresh garden on each session start.
-
-```typescript
-interface GeneratedMission {
-    flowers: LiveFlower[];          // 6–10 clusters
-    lawnmowerWaypoints: Point[];    // 4 passes at x=3,8,13,18
-    homePosition: Point;            // (2, 2)
-    initialTspRoute: string[];      // empty (no flowers discovered yet)
-}
-```
-
-**Flower placement constraints:**
-
-- Placed within 2.5m of garden edges (2.5 ≤ x,y ≤ 17.5)
-- Minimum 2.8m separation between any two clusters
-- Minimum 3.0m clearance from home base at (2,2)
-- Attempts up to 200 times per flower; gives up and places fewer flowers if needed
-
-**Color palette:** 10 pre-defined `(primaryColor, accentColor)` pairs covering a range of hues. Color assigned by `seededRng(flowerIndex)` so the same session always produces the same colors.
-
-**Lawnmower passes:** 4 vertical passes at x = 3.0, 8.0, 13.0, 18.0. Alternating direction (S→N, N→S) to minimize turnaround distance. Y range: 2.0 → 18.0. This pattern covers the entire 2.5–17.5m flower placement zone with the 4.5m proximity detection radius.
-
----
-
-## UI Panels — Deep Dive
-
-### Top-Down Mission View
-
-SVG 500×500 px, mapping the 20×20m garden space with `scale = 500/20 = 25 px/m`.
-
-**Flower clusters** — each cluster rendered with 4–7 individual flowers at seeded-RNG offsets within `cluster.radius`:
-- 6-petal design: each petal is an SVG ellipse, rotated at 0°/60°/120°/180°/240°/300°
-- Seeded leaf + stem placement for organic variation
-- SVG `feDropShadow` filter on each flower
-
-**Flower state rings:**
-
-| State | Visual |
-|---|---|
-| `unscanned` | 70% opacity, no ring (Mode 1) |
-| `undiscovered` | Hidden in live mode (ghost only) |
-| `discovered` | Green dashed circle, CSS `pulse` keyframe animation |
-| `scanned` | Blue dashed circle |
-| `candidate` | Amber solid ring with glow |
-| `locked` | Cyan solid ring + `feGaussianBlur` glow effect |
-| `pollinated` | 55% opacity, gold sparkle particles |
-
-**Drone icon:** Hexagonal body, 4 rotors with `rotor-spin` CSS animation, trapezoidal camera footprint cone pointing in yaw direction (scales with altitude).
-
-**TSP route overlay (Mode 2):** Dashed purple polyline drawn through `tspRoute` flower positions, visible from the first discovery (not gated on `planningComplete`).
-
-**Position trail:** Last 90 `positionHistory` samples rendered as a fading polyline (opacity decreases with age).
-
-### Altitude / Side View
-
-SVG 600×200 px cross-section.
-
-- **Y-axis:** 0–10m altitude, labeled grid lines at 0, 2, 5, 8, 10m
-- **Hover band:** 1.3–1.8m amber shaded zone
-- **Patrol altitude:** Dashed line at 8m
-- **Altitude trace:** Cyan polyline from `altitudeHistory` — **60-second rolling window** to prevent SVG overflow (x-axis = relative time, not absolute)
-- **Plant silhouettes:** 10 flower shapes at ground level at their x-positions
-- **Drone side profile:** Rendered at current altitude, with rotor arms + landing gear
-- **Rangefinder beam:** Dashed red line from drone belly to ground
-
-### Telemetry Dashboard
-
-| Section | Values |
-|---|---|
-| **Mission Status** | Phase badge (color-coded), waypoint index, elapsed time (mm:ss), target flower ID |
-| **Position & Motion** | X, Y, Z (m); Vx, Vy, Vz (m/s); 2D speed; yaw (°); yaw rate (°/s) |
-| **System Status** | Battery % + fill bar; signal strength bar |
-| **Sensor Readings** | Optical flow quality (0-255); flow velocity XY; rangefinder distance; sonar estimate; EKF confidence |
-| **Camera / Detection** | Detection confidence %; flowers in view count; target locked indicator; pollination active |
-| **Mission Progress** | Waypoints visited; pollinated count; per-flower chip grid (color = state) |
-| **Event Log** | Auto-scrolling, last 20 entries, color-coded: info (cyan) / warn (amber) / success (green) / event (purple) |
-
-In live mode, the flower chip grid renders `r1, r2, …` IDs and colors them green when pollinated. Confidence displays `—` at 0% to avoid invisible dark text on dark background.
-
-### Camera / Flower Analysis Panel
-
-Simulates what the drone camera feed looks like, processed through the YOLOv8 system.
-
-**AnalysisFrame pipeline:**
-
-```
-ReplayFrame / LiveFrame
-       ↓
-computeAnalysisFrame()
-       ↓
-AnalysisFrame {
-    flowers: FlowerRenderState[]   // camera-space positions + zoom
-    frustum: FrustumState          // tightness 0→1 based on phase
-    opticalFlow: OpticalFlowState  // from sensor model
-    phase: MissionPhase
-    confidence: number
-    targetId: string | null
-    framePng: string | null        // base64 JPEG from server (Mode 2 only)
-}
-       ↓
-CameraAnalysisScene (SVG 800×500)
-```
-
-**Fixed camera positions:** Flowers are assigned fixed pseudo-perspective positions in the 800×500 camera frame (two rows of up to 5), so the scene looks like a real garden view regardless of garden layout. During `target_lock` / `descent` / `hover_align` / `pollinating`, the target flower translates to scene center (400, 230) at 2× scale — simulating camera zoom.
-
-**SVG layer stack (bottom to top):**
-
-| Layer | Component | Description |
-|---|---|---|
-| 1 | Background | Dark scene, grid overlay, vignette, scanlines |
-| 2 | Live frame | Server PIL JPEG as `<image>` (Mode 2 only) |
-| 3 | Motion blur | `feGaussianBlur` on flower group when sensor velocity > 1.0 m/s |
-| 4 | Sensor jitter | Deterministic `jx/jy` offset on flower group when quality < 50 |
-| 5 | `FlowerClusterRenderer` | Organic SVG flowers in camera-space positions |
-| 6 | `DetectionHeatmap` | Radial gradient confidence blobs; opacity scales with `qualityIntensity` |
-| 7 | Stable glow | Cyan center ring when stability > 0.7 and altitude < 3m |
-| 8 | Instability tint | Red-orange radial vignette when stability < 0.4 |
-| 9 | `DetectionReticle` | Corner brackets + crosshair; tightness 0.15 (transit) → 1.0 (pollinating) |
-| 10 | `PollinationEffect` | Orbiting golden sparkle particles + pulse rings |
-| 11 | `MissionPhaseOverlay` | Phase banner for all 13 phases |
-| 12 | `FlowVectorOverlay` | Flow field grid + primary velocity arrow (cyan/amber/red by stability) |
-| 13 | `OpticalFlowHud` | Top-right HUD: DIST, SENSOR, FLOW X/Y, QUALITY, STRENGTH, PRECISION, STABILITY % |
-| 14 | `AnalysisHud` | Bottom HUD strip: phase chip, confidence bar + sparkline, status flags |
-
-### Terminal Panel
-
-Fixed overlay at the bottom of the screen in live mode. Dark terminal aesthetic (`#030810` background), monospace font, auto-scroll with unpin-on-scroll + re-pin button.
-
-**Entry types and colors:**
-
-| Type | Color | Content |
-|---|---|---|
-| `sys` | Slate | Connection events, session start, server status |
-| `phase` | Purple | State machine transitions with T+Xs elapsed |
-| `ws-out` | Blue | Every TX frame: phase + position + flower count |
-| `ws-in` | Cyan | RX summary: detection count + best confidence % |
-| `detect` | Green | Per-detection: flower ID, class, confidence, bbox |
-| `tsp` | Amber | Route updates: ordered flower ID list |
-| `nav` | Gray | Proximity events: discovered ID + distance |
-| `error` | Red | WebSocket errors, server failures |
-
-**Filter buttons:** ALL · WS (ws-out + ws-in) · INFER (detect + tsp) · NAV (nav + phase)  
-**CLEAR:** Clears the display without clearing the underlying buffer (useful for decluttering without losing history)
-
-### Live Status Bar
-
-Renders in live mode at the top of the screen:
-
-- WebSocket status dot: gray (disconnected) / amber (connecting) / green (connected) / red (error)
-- Inference mode chip: `ONNX` (blue) or `MOCK` (amber) + `XXms` inference time
-- `>_ TERMINAL` toggle button (highlights blue when open)
-- `RESTART` button
-- `EXIT` button (returns to mode selector)
-
-### Replay Controls
-
-Bottom bar in Mode 1:
-
-- Play / Pause button
-- Reset button
-- Speed selector: 1× / 2× / 4×
-- Time display: `mm:ss / mm:ss`
-- Range input scrubber with gradient fill showing progress
-- Mission progress bar
-
----
-
-## Data Models — Type Reference
-
-### `ReplayFrame`
-
-```typescript
-interface ReplayFrame {
-    time: number;                    // seconds since mission start
-    drone: DroneState;
-    sensor: SensorState;
-    mission: MissionState;
-    camera: CameraAnalysisState;
-    flowers: FlowerCluster[];
-    events: EventLogEntry[];
-}
-```
-
-### `DroneState`
-
-```typescript
-interface DroneState {
-    x: number; y: number; z: number;   // position (meters)
-    vx: number; vy: number; vz: number; // velocity (m/s)
-    speed: number;                      // 2D magnitude
-    yaw: number;                        // degrees CW from north
-    yawRate: number;                    // °/s
-}
-```
-
-### `SensorState`
-
-```typescript
-interface SensorState {
-    battery: number;                // 0–1
-    signal: number;                 // 0–1
-    opticalFlowQuality: number;     // 0–255
-    opticalFlowVelocityX: number;
-    opticalFlowVelocityY: number;
-    rangefinder: number;            // meters
-    ekfConfidence: number;          // 0.92–0.96
-    detectionConfidence: number;    // 0–1
-    // Extended optical flow state
-    ofStrength: number;             // raw sensor strength (0–255)
-    ofPrecision: number;            // bits
-    ofStability: number;            // 0–1 computed stability
-    ofNoise: number;                // 0–1
-    ofDegraded: boolean;            // altitude > 5m flag
-}
-```
-
-### `FlowerCluster`
-
-```typescript
-interface FlowerCluster {
-    id: string;                     // 'f1'–'f10' (replay), 'r1'–'rN' (live)
-    x: number; y: number;           // garden position (meters)
-    radius: number;                 // cluster radius
-    primaryColor: string;
-    accentColor: string;
-    state: FlowerState;             // see below
-    confidence: number;             // current detection confidence
-}
-
-type FlowerState =
-    | 'unscanned'      // Mode 1: not yet reached
-    | 'undiscovered'   // Mode 2: not yet detected
-    | 'discovered'     // Mode 2: proximity/CV detected
-    | 'scanned'        // camera analyzed, no lock yet
-    | 'candidate'      // confidence > 0.40
-    | 'locked'         // confidence > 0.75
-    | 'pollinated';    // mission complete for this flower
-```
-
-### `InferenceResult`
-
-```typescript
-interface InferenceResult {
-    detections: {
-        id: string;
-        confidence: number;
-        cls: string;
-        bbox: [number, number, number, number];
-    }[];
-    phaseSuggestion: LivePhase;
-    targetId: string | null;
-    inferenceMs: number;
-    inferenceMode: 'coral' | 'onnx' | 'mock';  // coral = Coral TPU, onnx = CPU fallback
-    framePng: string | null;         // base64 JPEG from scene renderer
-    tspSuggestion: string[];         // server-computed TSP order
-}
-```
-
-### `TerminalEntry`
-
-```typescript
-interface TerminalEntry {
-    type: TerminalEntryType;         // sys|phase|ws-out|ws-in|detect|tsp|nav|error
-    text: string;
-    timestamp: number;               // seconds since session start
-}
-```
-
----
-
-## Configuration
-
-| File | Purpose |
-|---|---|
-| `vite.config.ts` | Vite config with `@preact/preset-vite` and Tailwind; also includes the `inferenceServerPlugin` that handles `POST /api/start-inference-server` by spawning the Python process |
-| `tsconfig.json` | ES2020 target, `"jsxImportSource": "preact"`, strict mode |
-| `tailwind.config.ts` | Tailwind v4 with dark mode |
-| `drone-cv-system/server/requirements_server.txt` | `fastapi uvicorn websockets pillow numpy onnxruntime` |
-| `drone-cv-system/requirements.txt` | Full drone stack: `pymavlink ultralytics opencv-python RPi.GPIO loguru` |
-| `raw_opticalflow_data.csv` | Real sensor measurements (24 rows, 0–276 inches altitude) |
-
----
-
-## Hardware Setup (Real Drone)
+## Hardware Assembly & Setup
 
 ### Assembly Checklist
 
@@ -1440,14 +1368,14 @@ interface TerminalEntry {
 2. **Flight controller:** Pixhawk 2.4.8 on vibration damping plate (top deck)
 3. **Power:** 11.1 V 3S 4200 mAh LiPo in middle deck; power module to Pixhawk POWER port
 4. **ESCs:** 4× 20 A ESC connected to MAIN OUT 1–4 and to LiPo distribution
-5. **Motors:** 4× 2212 920 KV / 2213 935 KV brushless; 9450 self-tightening props (CCW on 1/2, CW on 3/4)
+5. **Motors:** 4× 2212 920 KV brushless; 9450 self-tightening props (CCW on 1/2, CW on 3/4)
 6. **GPS + Compass:** M8N GPS on foldable mast, connected to Pixhawk GPS port
 7. **RC receiver:** FS-iA6B in PPM mode → Pixhawk RC IN (CH5 flight mode, CH7 RTL)
 8. **Companion computer:** Raspberry Pi mounted on bottom deck; **dedicated 5 V BEC** for power (not from Pixhawk BEC)
 9. **Coral USB TPU:** Google Coral USB Accelerator in RPi USB 3.0 port
 10. **Camera:** Downward-facing camera (CSI or USB) on RPi, pointed directly down
 11. **UART bridge:** RPi GPIO 14/15 → Pixhawk TELEM2 (921 600 baud)
-12. **Pollination payload:** Micro servo on 3D-printed arm bracket; servo signal → Pixhawk AUX OUT 1; servo power → dedicated 5 V BEC (shared ground)
+12. **Pollination payload:** Micro servo on bracket; servo signal → Pixhawk AUX OUT 1; servo power → dedicated 5 V BEC (shared ground)
 
 ### Software Setup on Raspberry Pi
 
@@ -1498,97 +1426,20 @@ python3 drone-cv-system/main.py
 
 ## Tech Stack
 
-| Layer | Technology | Version | Role |
-|---|---|---|---|
-| **Frontend framework** | Preact | 10.19 | UI components, hooks |
-| **Language** | TypeScript | 5.3 | Type safety across frontend |
-| **Build tool** | Vite | 5.1 | Dev server, HMR, production build |
-| **CSS** | TailwindCSS | 4.0 | Utility styling |
-| **Rendering** | SVG | — | All 4 simulation panels |
-| **Backend web** | FastAPI + uvicorn | 0.110 | WebSocket inference server |
-| **Backend language** | Python | 3.9+ | CV, hardware, server |
-| **ML framework** | Ultralytics YOLOv8 | 8.x | Model training + ONNX/TFLite export |
-| **Inference (primary)** | Google Coral USB TPU + pycoral | 2.0 | EdgeTPU INT8 inference on RPi |
-| **Inference (fallback)** | ONNX Runtime | 1.17 | CPU inference, no Coral required |
-| **Image processing** | Pillow + NumPy | 10.x / 1.26 | Scene synthesis + preprocessing |
-| **Computer vision** | OpenCV | 4.9 | Lucas-Kanade flow, camera capture |
-| **Hardware comms** | pymavlink | 2.4 | MAVLink protocol to Pixhawk 2.4.8 |
-| **GPIO** | RPi.GPIO | 0.7 | Servo GPIO fallback (AUX MAVLink preferred) |
-| **Logging** | loguru | 0.7 | Python structured logging |
-
----
-
-## Folder Structure
-
-```
-drone-simulation/
-├── src/
-│   ├── app/
-│   │   └── App.tsx                    ← Mode selector, ReplayApp, LiveApp, liveToReplay adapter
-│   ├── components/
-│   │   ├── TopDownView/
-│   │   │   └── TopDownView.tsx        ← SVG garden map, drone, flowers, TSP route, trail
-│   │   ├── SideView/
-│   │   │   └── SideView.tsx           ← SVG altitude cross-section, rolling 60s trace
-│   │   ├── TelemetryPanel/
-│   │   │   └── TelemetryPanel.tsx     ← Engineering HUD, 7 sections, event log
-│   │   ├── ZoomPanel/
-│   │   │   └── ZoomPanel.tsx          ← Thin wrapper → CameraAnalysisPanel
-│   │   ├── ReplayControls/
-│   │   │   └── ReplayControls.tsx     ← Play/pause/speed/scrubber (Mode 1)
-│   │   ├── LiveStatus/
-│   │   │   └── LiveStatus.tsx         ← WS dot, inference chip, terminal toggle (Mode 2)
-│   │   ├── TerminalPanel/
-│   │   │   └── TerminalPanel.tsx      ← Live debug terminal, 8 entry types, filter buttons
-│   │   └── camera-analysis/
-│   │       ├── types.ts               ← AnalysisFrame, FlowerRenderState, FrustumState
-│   │       ├── CameraAnalysisPanel.tsx ← Computes AnalysisFrame from frame props
-│   │       ├── CameraAnalysisScene.tsx ← SVG compositor, jitter, blur, stable glow
-│   │       ├── FlowerClusterRenderer.tsx ← Seeded organic SVG flowers
-│   │       ├── DetectionReticle.tsx   ← Frustum brackets + crosshair
-│   │       ├── DetectionHeatmap.tsx   ← Radial-gradient confidence blobs
-│   │       ├── PollinationEffect.tsx  ← Orbiting sparkle particles
-│   │       ├── MissionPhaseOverlay.tsx ← Phase banners (all 13 phases)
-│   │       ├── AnalysisHud.tsx        ← Bottom HUD strip
-│   │       ├── FlowVectorOverlay.tsx  ← Optical flow vectors
-│   │       └── OpticalFlowHud.tsx     ← Sensor metrics panel
-│   ├── simulation/
-│   │   ├── replayEngine.ts            ← useReplayEngine hook, RAF loop, seek
-│   │   ├── liveInferenceEngine.ts     ← useLiveInferenceEngine hook, terminal buffer
-│   │   ├── autonomousNavigator.ts     ← 13-phase state machine, TSP, proximity detection
-│   │   ├── wsClient.ts                ← WebSocket client, auto-reconnect, send queue
-│   │   ├── sensorInterpolation.ts     ← Smooth-step altitude lookup
-│   │   └── opticalFlowModel.ts        ← Physics-based sensor degradation model
-│   ├── data/
-│   │   ├── missionGenerator.ts        ← 2700 deterministic ReplayFrames
-│   │   ├── randomMissionGenerator.ts  ← Random garden + lawnmower path
-│   │   └── opticalFlowDataset.ts      ← CSV parse + synthetic midpoints + merge
-│   ├── models/
-│   │   ├── types.ts                   ← All TypeScript interfaces + enums
-│   │   └── index.ts                   ← Re-exports
-│   └── styles/
-│       └── globals.css                ← Tailwind + keyframe animations (of-*, rotor-spin, pulse)
-├── drone-cv-system/
-│   ├── server/
-│   │   ├── inference_server.py        ← FastAPI WebSocket server, planning agent
-│   │   ├── scene_renderer.py          ← PIL photorealistic 640×640 frame synthesis
-│   │   ├── detection_bridge.py        ← ONNX / Mock dual-mode detection
-│   │   └── generate_model.py          ← Downloads + exports YOLOv8n ONNX
-│   ├── cv/
-│   │   ├── flower_detector.py         ← YOLOv8n ONNX inference + NMS post-processing
-│   │   ├── frame_preprocessor.py      ← Camera input normalization
-│   │   ├── optical_flow_tracker.py    ← Lucas-Kanade sparse tracking + EMA smoothing
-│   │   └── depth_estimator.py         ← Distance estimation from bbox + altitude
-│   ├── pixhawk/
-│   │   ├── mavlink_interface.py       ← pymavlink wrapper, background reader thread
-│   │   └── flight_controller.py       ← Mission-level flight commands
-│   └── mission/
-│       ├── state_machine.py           ← Python 13-phase state machine (20 Hz)
-│       └── pollination_manager.py     ← GPIO servo + motor, flower target tracking
-├── raw_opticalflow_data.csv           ← Real sensor measurements (24 rows)
-├── vite.config.ts
-├── tailwind.config.ts
-├── tsconfig.json
-├── package.json
-└── README.md
-```
+| Layer | Technology | Notes |
+|---|---|---|
+| Frontend framework | Preact 10 + TypeScript 5 | React-compatible, smaller bundle |
+| Build tool | Vite 5 + `@preact/preset-vite` | HMR, proxy middleware |
+| Styling | Tailwind CSS v4 + `@tailwindcss/vite` | Utility classes + custom animations |
+| Rendering | Pure SVG (no canvas/WebGL) | All panels are SVG with CSS animations |
+| State management | Preact hooks only | No Redux/Zustand/MobX |
+| Backend framework | FastAPI + uvicorn | Async WebSocket + HTTP + SSE |
+| LLM integration | `langchain-anthropic` + `langchain-core` | `ChatAnthropic`, `BaseCallbackHandler`, `StructuredTool` |
+| LLM model | Claude claude-haiku-4-5-20251001 | Fast + cheap for real-time decisions |
+| RAG embeddings | `sentence-transformers/all-MiniLM-L6-v2` | 384-dim, local CPU, ~90MB |
+| RAG vector store | Chroma (`langchain-community`) | SQLite persistence, cosine similarity |
+| Computer vision | ONNX Runtime + YOLOv8n | 3.2M params, 6.3MB, COCO mAP50 37.3 |
+| TPU inference | Google Coral pycoral + EdgeTPU | INT8 TFLite, ~5ms/frame |
+| Bandit | UCB1 (custom Python) | No ML framework dependency |
+| Streaming | SSE + WebSocket | Commentary (SSE), terminal + inference (WS) |
+| Hardware target | Raspberry Pi 4 + Pixhawk 6 + Coral USB | Production autonomous flight |

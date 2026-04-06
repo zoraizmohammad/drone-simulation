@@ -58,20 +58,26 @@ export function generateRandomGarden(seed = Date.now()): LiveFlower[] {
   return flowers
 }
 
-// Four lawnmower passes covering the 20×20 garden at x = 3, 8, 13, 18
-// with 4.5m proximity detection radius → full coverage of the 2.5–17.5 flower zone
-// Alternating S→N and N→S to avoid long repositioning flights
-export function generateLawnmowerPath(): Array<{ x: number; y: number }> {
-  return [
-    { x: 3.0,  y: 2.0  },
-    { x: 3.0,  y: 18.0 },
-    { x: 8.0,  y: 18.0 },
-    { x: 8.0,  y: 2.0  },
-    { x: 13.0, y: 2.0  },
-    { x: 13.0, y: 18.0 },
-    { x: 18.0, y: 18.0 },
-    { x: 18.0, y: 2.0  },
-  ]
+// Lawnmower passes covering the 20×20 garden.
+// spacing: meters between vertical passes (default 4.5m).
+// With 4.5m proximity detection radius → full coverage of the 2.5–17.5 flower zone.
+// Alternating S→N and N→S to avoid long repositioning flights.
+export function generateLawnmowerPath(spacing = 4.5): Array<{ x: number; y: number }> {
+  const startX = 3.0
+  const endX   = 18.0
+  const path: Array<{ x: number; y: number }> = []
+  let x = startX
+  let southward = false
+
+  while (x <= endX + 0.01) {
+    const xr = Math.round(x * 10) / 10
+    path.push({ x: xr, y: southward ? 18.0 : 2.0 })
+    path.push({ x: xr, y: southward ? 2.0 : 18.0 })
+    x += spacing
+    southward = !southward
+  }
+
+  return path
 }
 
 export function computeTSPRoute(

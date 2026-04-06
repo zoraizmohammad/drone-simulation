@@ -1,9 +1,11 @@
 import type { WsStatus } from '../../simulation/wsClient'
+import type { AgentStatus } from '../../simulation/agentClient'
 
 interface Props {
   wsStatus: WsStatus
   inferenceMode: 'coral' | 'onnx' | 'mock' | null
   inferenceMs: number
+  agentStatus?: AgentStatus
   onRestart: () => void
   onExit: () => void
   onToggleTerminal: () => void
@@ -28,7 +30,16 @@ function statusLabel(s: WsStatus): string {
   }
 }
 
-export function LiveStatus({ wsStatus, inferenceMode, inferenceMs, onRestart, onExit, onToggleTerminal, terminalOpen }: Props) {
+function agentStatusColor(s: AgentStatus | undefined): string {
+  switch (s) {
+    case 'connected':    return '#22c55e'
+    case 'connecting':   return '#f59e0b'
+    case 'error':        return '#ef4444'
+    default:             return '#475569'
+  }
+}
+
+export function LiveStatus({ wsStatus, inferenceMode, inferenceMs, agentStatus, onRestart, onExit, onToggleTerminal, terminalOpen }: Props) {
   const sc = statusColor(wsStatus)
   const connected = wsStatus === 'connected'
 
@@ -76,6 +87,25 @@ export function LiveStatus({ wsStatus, inferenceMode, inferenceMs, onRestart, on
           }`,
         }}>
           {inferenceMode === 'coral' ? '⬡ CORAL TPU' : inferenceMode === 'onnx' ? 'ONNX' : 'MOCK'} · {inferenceMs.toFixed(0)}ms
+        </div>
+      )}
+
+      {/* Agent status indicator */}
+      {agentStatus && agentStatus !== 'disconnected' && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 5,
+          padding: '3px 8px', borderRadius: 4, fontSize: 9,
+          background: agentStatusColor(agentStatus) + '18',
+          border: `1px solid ${agentStatusColor(agentStatus)}44`,
+          color: agentStatusColor(agentStatus),
+          fontWeight: 700, letterSpacing: '0.08em',
+        }}>
+          <div style={{
+            width: 5, height: 5, borderRadius: '50%',
+            background: agentStatusColor(agentStatus),
+            boxShadow: agentStatus === 'connected' ? `0 0 4px ${agentStatusColor(agentStatus)}` : 'none',
+          }} />
+          AI
         </div>
       )}
 

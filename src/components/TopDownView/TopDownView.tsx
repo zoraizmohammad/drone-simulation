@@ -1,4 +1,4 @@
-import type { ReplayFrame, FlowerCluster, LiveFrame } from '../../models/types'
+import type { ReplayFrame, FlowerCluster, LiveFrame, AgentState } from '../../models/types'
 import { GARDEN_SIZE, WAYPOINTS } from '../../data/missionGenerator'
 import { getPhaseColor } from '../../app/App'
 
@@ -6,6 +6,7 @@ interface Props {
   frame: ReplayFrame
   positionHistory: Array<{ x: number; y: number }>
   liveFrame?: LiveFrame | null
+  agentState?: AgentState
 }
 
 // Map garden coords to SVG coords
@@ -234,7 +235,7 @@ function GhostFlower({ x, y }: { x: number; y: number }) {
   )
 }
 
-export function TopDownView({ frame, positionHistory, liveFrame }: Props) {
+export function TopDownView({ frame, positionHistory, liveFrame, agentState }: Props) {
   const drone = frame.drone
   const mission = frame.mission
   const droneSvg = gardenToSvg(drone.x, drone.y)
@@ -446,6 +447,46 @@ export function TopDownView({ frame, positionHistory, liveFrame }: Props) {
           strokeLinejoin="round"
         />
       )}
+
+      {/* Agent-suggested route overlay (purple dashed, labeled "AI ROUTE") */}
+      {isLiveMode && (agentState?.lastDecision?.priorityOverride?.length ?? 0) > 1 && (() => {
+        const agentRoute = agentState!.lastDecision!.priorityOverride
+        const routeFlowers = agentRoute
+          .map(id => liveFrame!.flowers.find(f => f.id === id))
+          .filter(Boolean) as typeof liveFrame.flowers
+        if (routeFlowers.length < 2) return null
+        const pts = routeFlowers.map(f => {
+          const p = gardenToSvg(f.x, f.y)
+          return `${p.x},${p.y}`
+        }).join(' ')
+        const firstPt = gardenToSvg(routeFlowers[0].x, routeFlowers[0].y)
+        return (
+          <g opacity={0.75}>
+            <polyline
+              points={pts}
+              fill="none"
+              stroke="#a78bfa"
+              strokeWidth={2}
+              strokeDasharray="6,4"
+            />
+            {routeFlowers.map((f, idx) => {
+              const p = gardenToSvg(f.x, f.y)
+              return (
+                <g key={f.id}>
+                  <circle cx={p.x} cy={p.y - 22} r={7} fill="#1e1b4b" stroke="#a78bfa" strokeWidth={1.5} />
+                  <text x={p.x} y={p.y - 19} fontSize={7} fill="#c4b5fd"
+                    textAnchor="middle" fontWeight="bold">{idx + 1}</text>
+                </g>
+              )
+            })}
+            {/* Label */}
+            <rect x={firstPt.x + 5} y={firstPt.y - 35} width={52} height={12} rx={2}
+              fill="#1e1b4b" opacity={0.85} />
+            <text x={firstPt.x + 31} y={firstPt.y - 26} fontSize={8} fill="#a78bfa"
+              textAnchor="middle" fontWeight="bold" letterSpacing="0.06em">AI ROUTE</text>
+          </g>
+        )
+      })()}
 
       {/* Drone */}
       <g filter="url(#droneShadow)">
