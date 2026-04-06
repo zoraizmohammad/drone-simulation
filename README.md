@@ -1,4 +1,4 @@
-# Smart Pollinator Drone — Mission Simulation & Agentic CV System
+# Smart Pollinator Drone — Autonomous UAV-Based Precision Pollination via Agentic Perception, Adaptive Mission Planning, and Embedded Actuation
 
 A full-stack autonomous pollinator drone platform built in two mirrored halves: a browser-based mission dashboard (Preact + TypeScript + Vite) that runs a real-time simulation of a drone pollinating flowers across a 20m × 20m garden, and a production-grade autonomous flight and computer vision system (Python FastAPI, Raspberry Pi 4, Pixhawk 2.4.8, Google Coral TPU) that can fly the same mission on real hardware.
 
