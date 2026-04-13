@@ -1,110 +1,90 @@
 # Benchmark Report — Autonomous Pollination UAV
-**Generated:** 2026-04-13T04:58:41Z
+**Generated:** 2026-04-13T15:09:30Z
 **Environment:** Python 3.14.2 on darwin
-**Note:** All timings from `time.perf_counter()` on development machine (not Raspberry Pi 4).
+> All timings from `time.perf_counter()` on development machine (not Raspberry Pi 4).
 
 ---
 
-## B1 — Mock Detector Latency
-
-Physics-based inference pipeline (sensor interpolation + camera projection + confidence coupling).
-**1000 timed calls per cell**, with 20 warmup calls discarded.
+## B1 — Mock Detector Latency (µs)
+*1000 calls/cell, 20 warmup discarded*
 
 | Altitude | N=1 | N=3 | N=5 | N=8 | N=10 |
 |---|---|---|---|---|---|
-| **1.5m** | 1.1µs | 1.9µs | 2.4µs | 3.6µs | 4.2µs |
-| **3.0m** | 1.5µs | 2.1µs | 2.8µs | 4.7µs | 5.4µs |
-| **5.0m** | 1.9µs | 3.3µs | 4.0µs | 6.7µs | 7.4µs |
-| **8.0m** | 3.0µs | 5.3µs | 7.4µs | 10.5µs | 12.7µs |
+| **1.5 m** | 2.4 | 3.7 | 5.0 | 7.1 | 8.5 |
+| **3.0 m** | 2.9 | 4.3 | 5.6 | 9.2 | 10.7 |
+| **5.0 m** | 3.7 | 6.6 | 8.0 | 13.0 | 14.5 |
+| **8.0 m** | 5.9 | 10.3 | 14.6 | 20.9 | 25.3 |
 
-**Overall mean latency:** 4.6 µs
-**Overall p99 latency:** 13.3 µs
-**Mission scenario (alt=1.5m, N=8):** mean=3.6µs  p99=3.9µs
-**Patrol scenario (alt=8.0m, N=8):** mean=10.5µs  p99=11.0µs
+- **Overall mean:** 9.1 µs — **overall p99:** 27.4 µs
+- **Mission scenario (hover, N=8):** mean 7.1 µs — p99 7.3 µs
+- **Patrol scenario (alt=8 m, N=8):** mean 20.9 µs — p99 21.4 µs
 
 ---
 
 ## B2 — Sensor Interpolation Throughput
-
-100,000 altitude lookups via smooth-step binary-search interpolation engine.
+*100,000 random altitude lookups*
 
 | Metric | Value |
 |---|---|
-| Total time | 99.0 ms |
-| Throughput | **1,009,709 lookups/sec** |
-| Mean latency per lookup | 0.990 µs |
-
-Sensor quality peaks at **3.05m altitude** (quality=150, strength=85), consistent with real CSV data.
-Degradation onset at **5.0m** (strength drops below 45, quality below 130).
+| Total time | 198.3 ms |
+| **Throughput** | **504,218 lookups/sec** |
+| Mean latency | 1.983 µs/lookup |
 
 ---
 
 ## B3 — TSP Route Planning Scalability
-
-Greedy nearest-neighbor TSP, 500 trials per flower count.
+*500 trials per N*
 
 | N flowers | Mean (µs) | p95 (µs) |
 |---|---|---|
-| 2 | 0.70 | 0.70 |
-| 4 | 1.60 | 1.70 |
-| 6 | 2.90 | 3.00 |
-| 8 | 4.50 | 4.70 |
-| 10 | 6.70 | 6.80 |
-| 20 | 22.40 | 22.90 |
-| 50 | 124.30 | 126.00 |
+| 2 | 1.30 | 1.30 |
+| 4 | 3.10 | 3.20 |
+| 6 | 5.50 | 5.60 |
+| 8 ←mission | 8.60 | 8.80 |
+| 10 | 12.70 | 12.80 |
+| 20 | 42.40 | 42.90 |
+| 50 | 237.40 | 240.60 |
 
-**Mission scale (N=8):** mean=4.50µs  p95=4.70µs
-Route planning is effectively instantaneous at mission scale — leaves >99.99% of the 50ms hardware loop budget available.
+- **Mission scale (N=8):** mean 8.60 µs — leaves >99.99% of 50 ms loop budget available.
 
 ---
 
 ## B4 — Full Frame Pipeline Throughput
-
-Sensor lookup + mock detect (8 flowers) + confidence coupling, across all 2700 mission frames.
+*sensor lookup + detect (8 flowers) + confidence coupling × 2700 frames*
 
 | Metric | Value |
 |---|---|
-| Total pipeline time | 22.8 ms |
-| **Frames per second** | **118273 fps** |
-| Mean frame latency | 8.4 µs |
-| Median frame latency | 8.8 µs |
-| p95 frame latency | 12.7 µs |
-| p99 frame latency | 13.6 µs |
-| Worst frame | 17.5 µs |
+| Total pipeline time | 45.3 ms |
+| **Frames per second** | **59571 fps** |
+| Mean frame latency | 16.6 µs |
+| p99 frame latency | 26.7 µs |
+| Worst frame | 37.5 µs |
 
-The detection pipeline can sustain **118273 fps** — **3942× faster than the 30fps simulation target** and **5914× faster than the 20Hz hardware loop**.
+Pipeline sustains **59571 fps** — 1986× faster than 30 fps simulation target.
 
 ---
 
 ## B5 — Detection Confidence vs Altitude
 
-Drone descending from 8.0m → 1.5m toward a target flower at 4 horizontal offsets.
-
 | Horizontal offset | Lock threshold (0.75) first reached |
 |---|---|
-| 0.0m | 2.55m |
-| 1.0m | never reached |
-| 2.0m | never reached |
-| 4.0m | never reached |
-
-At 0m offset, confidence rises from **~0** at 8m patrol altitude to **>0.75** lock threshold at **2.55m**.
-At 2m horizontal offset, confidence peaks below the lock threshold — requiring the drone to approach closer.
-Detection confidence is modulated by real sensor strength and quality data throughout descent.
+| 0.0 m | 2.55 m |
+| 1.0 m | never reached |
+| 2.0 m | never reached |
+| 4.0 m | never reached |
 
 ---
 
-## B6 — UCB1 Confidence Bandit Convergence
-
-500-step simulated mission with phase-conditioned reward functions (hover→0.75 arm, scanning→0.40 arm).
+## B6 — UCB1 Confidence Bandit
 
 | Metric | Value |
 |---|---|
 | Steps | 500 |
-| Total time | 0.73 ms |
-| **Throughput** | **683,839 bandit steps/sec** |
-| Arm 0.40 selections | 182 |
-| Arm 0.60 selections | 88 |
-| Arm 0.75 selections | 230 |
+| Total time | 1.55 ms |
+| **Throughput** | **323,328 steps/sec** |
+| Arm 0.40 selected | 182 |
+| Arm 0.60 selected | 88 |
+| Arm 0.75 selected | 230 |
 | Final cumulative reward | 242.0 |
 | Mean reward/step | 0.4840 |
 
@@ -113,28 +93,17 @@ Detection confidence is modulated by real sensor strength and quality data throu
 ## B7 — LLM Agent /decide Latency
 
 *Skipped: no ANTHROPIC_API_KEY*
+
 ---
 
 ## Summary — Poster-Ready Numbers
 
-| Metric | Measured Value | Benchmark |
+| Metric | Measured Value | Source |
 |---|---|---|
-| Mock detector mean latency (8 flowers, 1.5m) | 3.6 µs | B1 |
-| Mock detector p99 latency | 13.3 µs | B1 |
-| Sensor interpolation throughput | 1,009,709 lookups/sec | B2 |
-| TSP planning (N=8 flowers) | 4.50 µs | B3 |
-| End-to-end pipeline throughput | 118273 fps | B4 |
-| Target lock altitude (0m offset) | 2.55 m | B5 |
-| UCB1 bandit throughput | 683,839 steps/sec | B6 |
-
----
-
-## Figures
-
-- `plots/b1_mock_detector_heatmap.png` — Latency heatmap (altitude × flower count)
-- `plots/b2_sensor_interpolation.png` — Sensor strength/quality/stability vs altitude
-- `plots/b3_tsp_scalability.png` — TSP latency vs flower count
-- `plots/b4_frame_pipeline_histogram.png` — Frame latency distribution + timeline
-- `plots/b5_confidence_altitude.png` — Detection confidence during descent
-- `plots/b6_bandit_convergence.png` — UCB1 arm selection + cumulative reward
-
+| Mock detector (hover, 8 flowers) | 7.1 µs mean | B1 |
+| Mock detector p99 | 27.4 µs | B1 |
+| Sensor interpolation throughput | 504,218 lookups/sec | B2 |
+| TSP planning (N=8) | 8.60 µs | B3 |
+| End-to-end pipeline | 59571 fps | B4 |
+| Target lock altitude (0 m offset) | 2.55 m | B5 |
+| UCB1 bandit throughput | 323,328 steps/sec | B6 |
