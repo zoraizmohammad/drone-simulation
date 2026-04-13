@@ -1,0 +1,453 @@
+{
+  "metadata": {
+    "generated": "2026-04-13",
+    "project": "Autonomous Pollination UAV System",
+    "audit_method": "direct source-file extraction — no values invented",
+    "important_caveat": "All latency figures are design targets from README/config, not benchmark run outputs. All mission metrics are from deterministic simulation, not physical flights. Hardware integration is implemented in code but no physical flight logs exist in repo."
+  },
+  "metrics": [
+    {
+      "metric_name": "Garden size",
+      "value": "20 x 20",
+      "unit": "meters",
+      "how_computed": "Direct read from mission_config.yaml line 3",
+      "evidence_files": ["drone-cv-system/config/mission_config.yaml"],
+      "support_level": "high",
+      "category": "mission_execution"
+    },
+    {
+      "metric_name": "Total flower clusters in garden",
+      "value": 10,
+      "unit": "clusters",
+      "how_computed": "Count of FLOWERS array entries in src/data/missionGenerator.ts (f1–f10)",
+      "evidence_files": ["src/data/missionGenerator.ts"],
+      "support_level": "high",
+      "category": "detection_pollination"
+    },
+    {
+      "metric_name": "Flower clusters targeted per mission",
+      "value": 8,
+      "unit": "clusters",
+      "how_computed": "mission_config.yaml max_targets: 8; missionGenerator visits f1–f8",
+      "evidence_files": ["drone-cv-system/config/mission_config.yaml", "src/data/missionGenerator.ts"],
+      "support_level": "high",
+      "category": "detection_pollination"
+    },
+    {
+      "metric_name": "Mission success rate (deterministic simulation)",
+      "value": "8/8",
+      "unit": "flowers pollinated",
+      "how_computed": "Pre-generated 2700-frame replay in missionGenerator.ts visits all 8 targets to mission_complete phase. Deterministic — not stochastic.",
+      "evidence_files": ["src/data/missionGenerator.ts", "src/simulation/replayEngine.ts"],
+      "support_level": "high",
+      "category": "detection_pollination",
+      "notes": "SIMULATION ONLY — no physical flight logs in repo"
+    },
+    {
+      "metric_name": "Mission phases implemented",
+      "value": 13,
+      "unit": "phases",
+      "how_computed": "MissionPhase enum in src/models/types.ts; identical phase names in drone-cv-system/mission/state_machine.py",
+      "evidence_files": ["src/models/types.ts", "drone-cv-system/mission/state_machine.py", "CLAUDE.md"],
+      "support_level": "high",
+      "category": "mission_execution"
+    },
+    {
+      "metric_name": "Total replay frames",
+      "value": 2700,
+      "unit": "frames",
+      "how_computed": "90 seconds × 30 fps = 2700, from missionGenerator.ts constants",
+      "evidence_files": ["src/data/missionGenerator.ts"],
+      "support_level": "high",
+      "category": "mission_execution"
+    },
+    {
+      "metric_name": "Simulation frame rate",
+      "value": 30,
+      "unit": "fps",
+      "how_computed": "FPS constant in missionGenerator.ts",
+      "evidence_files": ["src/data/missionGenerator.ts"],
+      "support_level": "high",
+      "category": "latency_performance"
+    },
+    {
+      "metric_name": "Hardware mission loop rate",
+      "value": 20,
+      "unit": "Hz",
+      "how_computed": "state_machine.py: time.sleep(0.05) = 50ms tick = 20 Hz",
+      "evidence_files": ["drone-cv-system/mission/state_machine.py"],
+      "support_level": "high",
+      "category": "latency_performance"
+    },
+    {
+      "metric_name": "Patrol altitude",
+      "value": 8.0,
+      "unit": "meters",
+      "how_computed": "mission_config.yaml patrol_altitude_m: 8.0",
+      "evidence_files": ["drone-cv-system/config/mission_config.yaml"],
+      "support_level": "high",
+      "category": "mission_execution"
+    },
+    {
+      "metric_name": "Pollination hover altitude",
+      "value": 1.5,
+      "unit": "meters",
+      "how_computed": "mission_config.yaml hover_altitude_m: 1.5",
+      "evidence_files": ["drone-cv-system/config/mission_config.yaml"],
+      "support_level": "high",
+      "category": "mission_execution"
+    },
+    {
+      "metric_name": "Hover band tolerance",
+      "value": 0.3,
+      "unit": "meters (±)",
+      "how_computed": "mission_config.yaml hover_band_m: 0.3",
+      "evidence_files": ["drone-cv-system/config/mission_config.yaml"],
+      "support_level": "high",
+      "category": "mission_execution"
+    },
+    {
+      "metric_name": "Candidate detection confidence threshold",
+      "value": 0.40,
+      "unit": "unitless (0–1)",
+      "how_computed": "state_machine.py line 126: CANDIDATE_CONF_THRESHOLD = 0.40; confirmed in inference_server.py line 127",
+      "evidence_files": ["drone-cv-system/mission/state_machine.py", "drone-cv-system/server/inference_server.py"],
+      "support_level": "high",
+      "category": "detection_pollination"
+    },
+    {
+      "metric_name": "Target lock confidence threshold",
+      "value": 0.75,
+      "unit": "unitless (0–1)",
+      "how_computed": "state_machine.py line 129: LOCK_CONF_THRESHOLD = 0.75; mission_config.yaml target_lock_confidence: 0.75; inference_server.py line 130",
+      "evidence_files": ["drone-cv-system/mission/state_machine.py", "drone-cv-system/config/mission_config.yaml", "drone-cv-system/server/inference_server.py"],
+      "support_level": "high",
+      "category": "detection_pollination"
+    },
+    {
+      "metric_name": "Pollination dwell time",
+      "value": 3.0,
+      "unit": "seconds",
+      "how_computed": "mission_config.yaml pollination_dwell_s: 3.0",
+      "evidence_files": ["drone-cv-system/config/mission_config.yaml"],
+      "support_level": "high",
+      "category": "mission_execution"
+    },
+    {
+      "metric_name": "Flower proximity detection radius",
+      "value": 4.5,
+      "unit": "meters",
+      "how_computed": "src/simulation/autonomousNavigator.ts detection radius constant",
+      "evidence_files": ["src/simulation/autonomousNavigator.ts"],
+      "support_level": "high",
+      "category": "detection_pollination"
+    },
+    {
+      "metric_name": "Coral TPU inference latency (design target)",
+      "value": 5,
+      "unit": "milliseconds",
+      "how_computed": "README.md design target; elapsed_ms measurement instrumented in coral_detector.py:197 but no benchmark output files in repo",
+      "evidence_files": ["drone-cv-system/cv/coral_detector.py", "drone-cv-system/README.md"],
+      "support_level": "low",
+      "category": "latency_performance",
+      "notes": "DESIGN TARGET only — benchmark_rpi() in ml/model.py exists but no saved output"
+    },
+    {
+      "metric_name": "YOLOv8n ONNX inference latency on RPi4 (design target)",
+      "value": 30,
+      "unit": "milliseconds",
+      "how_computed": "README.md design target; elapsed_ms instrumented in flower_detector.py:217 but no benchmark output in repo",
+      "evidence_files": ["drone-cv-system/cv/flower_detector.py", "drone-cv-system/README.md"],
+      "support_level": "low",
+      "category": "latency_performance",
+      "notes": "DESIGN TARGET only — no saved benchmark run"
+    },
+    {
+      "metric_name": "Mock detector latency",
+      "value": "<1",
+      "unit": "milliseconds",
+      "how_computed": "Pure CPU geometry computation in detection_bridge.py — no ML model load, no I/O. Measurable but not benchmarked.",
+      "evidence_files": ["drone-cv-system/server/detection_bridge.py"],
+      "support_level": "medium",
+      "category": "latency_performance",
+      "notes": "Structural inference — no measured value in repo"
+    },
+    {
+      "metric_name": "Coral TPU throughput (manufacturer spec)",
+      "value": "4",
+      "unit": "TOPS (INT8)",
+      "how_computed": "Coral USB Accelerator manufacturer specification, referenced in coral_detector.py",
+      "evidence_files": ["drone-cv-system/cv/coral_detector.py"],
+      "support_level": "medium",
+      "category": "latency_performance",
+      "notes": "Hardware spec — not measured in this repo"
+    },
+    {
+      "metric_name": "Coral target FPS on RPi4",
+      "value": "15–30",
+      "unit": "FPS",
+      "how_computed": "README.md documentation, consistent with 4 TOPS INT8 for YOLOv8n",
+      "evidence_files": ["drone-cv-system/README.md"],
+      "support_level": "low",
+      "category": "latency_performance",
+      "notes": "DESIGN TARGET — not benchmarked in repo"
+    },
+    {
+      "metric_name": "ONNX FPS on RPi4 at 640x640",
+      "value": "8–12",
+      "unit": "FPS",
+      "how_computed": "README.md documentation",
+      "evidence_files": ["drone-cv-system/README.md"],
+      "support_level": "low",
+      "category": "latency_performance",
+      "notes": "DESIGN TARGET — not benchmarked in repo"
+    },
+    {
+      "metric_name": "Agent decision timing instrumentation",
+      "value": "captured per-call in _decision_times deque",
+      "unit": "milliseconds",
+      "how_computed": "agent_server.py line 364: t_start = time.perf_counter(); line 474: elapsed_ms appended to deque; line 494: returned as 'decisionMs' in response",
+      "evidence_files": ["drone-cv-system/server/agent_server.py"],
+      "support_level": "medium",
+      "category": "latency_performance",
+      "notes": "Instrumentation exists and values reported in API response, but no saved log of actual runs"
+    },
+    {
+      "metric_name": "Agent debounce interval",
+      "value": 200,
+      "unit": "milliseconds",
+      "how_computed": "src/simulation/agentClient.ts debounce constant",
+      "evidence_files": ["src/simulation/agentClient.ts"],
+      "support_level": "high",
+      "category": "latency_performance"
+    },
+    {
+      "metric_name": "Agent call frequency (simulation)",
+      "value": 1,
+      "unit": "calls/second",
+      "how_computed": "Every 30 frames at 30 fps = 1 Hz decision rate",
+      "evidence_files": ["src/simulation/agentClient.ts", "drone-cv-system/README.md"],
+      "support_level": "high",
+      "category": "latency_performance"
+    },
+    {
+      "metric_name": "LLM agent max tool-calling rounds",
+      "value": 3,
+      "unit": "rounds",
+      "how_computed": "agent_server.py MAX_TOOL_ROUNDS constant",
+      "evidence_files": ["drone-cv-system/server/agent_server.py"],
+      "support_level": "high",
+      "category": "planning"
+    },
+    {
+      "metric_name": "LLM tools available to agent",
+      "value": 4,
+      "unit": "StructuredTools",
+      "how_computed": "agent_server.py defines: compute_tsp_route, estimate_battery_range, recommend_confidence_threshold, plan_scan_pattern",
+      "evidence_files": ["drone-cv-system/server/agent_server.py"],
+      "support_level": "high",
+      "category": "planning"
+    },
+    {
+      "metric_name": "UCB1 bandit confidence arms",
+      "value": "[0.40, 0.60, 0.75]",
+      "unit": "confidence thresholds",
+      "how_computed": "confidence_bandit.py line 17: ARMS = [0.40, 0.60, 0.75]",
+      "evidence_files": ["drone-cv-system/server/confidence_bandit.py"],
+      "support_level": "high",
+      "category": "planning"
+    },
+    {
+      "metric_name": "RAG retrieval top-k",
+      "value": 3,
+      "unit": "similar past missions",
+      "how_computed": "mission_store.py Chroma similarity_search(query, k=3)",
+      "evidence_files": ["drone-cv-system/server/mission_store.py"],
+      "support_level": "high",
+      "category": "planning"
+    },
+    {
+      "metric_name": "Scan overlap percentage",
+      "value": 30,
+      "unit": "percent",
+      "how_computed": "mission_config.yaml search_overlap_pct: 0.3",
+      "evidence_files": ["drone-cv-system/config/mission_config.yaml"],
+      "support_level": "high",
+      "category": "planning"
+    },
+    {
+      "metric_name": "Max horizontal speed",
+      "value": 3.0,
+      "unit": "m/s",
+      "how_computed": "mission_config.yaml limits.max_speed_ms: 3.0",
+      "evidence_files": ["drone-cv-system/config/mission_config.yaml"],
+      "support_level": "high",
+      "category": "mission_execution"
+    },
+    {
+      "metric_name": "Max descent rate",
+      "value": 0.8,
+      "unit": "m/s",
+      "how_computed": "mission_config.yaml limits.max_descent_rate_ms: 0.8",
+      "evidence_files": ["drone-cv-system/config/mission_config.yaml"],
+      "support_level": "high",
+      "category": "mission_execution"
+    },
+    {
+      "metric_name": "Battery return-to-home threshold",
+      "value": 20,
+      "unit": "percent",
+      "how_computed": "mission_config.yaml limits.min_battery_pct: 20.0",
+      "evidence_files": ["drone-cv-system/config/mission_config.yaml"],
+      "support_level": "high",
+      "category": "mission_execution"
+    },
+    {
+      "metric_name": "Geofence radius",
+      "value": 15.0,
+      "unit": "meters",
+      "how_computed": "mission_config.yaml limits.geofence_radius_m: 15.0",
+      "evidence_files": ["drone-cv-system/config/mission_config.yaml"],
+      "support_level": "high",
+      "category": "hardware_validation"
+    },
+    {
+      "metric_name": "Optical flow real sensor data rows",
+      "value": 24,
+      "unit": "measurements",
+      "how_computed": "Direct count of data rows in raw_opticalflow_data.csv (lines 2–25)",
+      "evidence_files": ["raw_opticalflow_data.csv"],
+      "support_level": "high",
+      "category": "mission_execution"
+    },
+    {
+      "metric_name": "Optical flow sensor altitude coverage",
+      "value": "0–7.01",
+      "unit": "meters",
+      "how_computed": "CSV rows span distance_m 0.00 to 7.01 (distance_in 0–276)",
+      "evidence_files": ["raw_opticalflow_data.csv"],
+      "support_level": "high",
+      "category": "mission_execution"
+    },
+    {
+      "metric_name": "Peak optical flow sensor quality",
+      "value": 150,
+      "unit": "quality units (0–255)",
+      "how_computed": "CSV peak at row 120in (3.05m): flow_quality=150; used as normalization denominator in opticalFlowModel.ts",
+      "evidence_files": ["raw_opticalflow_data.csv", "src/simulation/opticalFlowModel.ts"],
+      "support_level": "high",
+      "category": "mission_execution"
+    },
+    {
+      "metric_name": "YOLOv8 model architecture",
+      "value": "YOLOv8n (nano)",
+      "unit": "architecture",
+      "how_computed": "model_config.yaml architecture: yolov8n",
+      "evidence_files": ["drone-cv-system/config/model_config.yaml"],
+      "support_level": "high",
+      "category": "detection_pollination"
+    },
+    {
+      "metric_name": "Detection classes",
+      "value": 3,
+      "unit": "classes",
+      "how_computed": "model_config.yaml classes: flower_open, flower_closed, flower_cluster",
+      "evidence_files": ["drone-cv-system/config/model_config.yaml"],
+      "support_level": "high",
+      "category": "detection_pollination"
+    },
+    {
+      "metric_name": "Model input resolution",
+      "value": 640,
+      "unit": "pixels (640×640)",
+      "how_computed": "model_config.yaml training image_size: 640; camera_config.yaml inference_size: 640",
+      "evidence_files": ["drone-cv-system/config/model_config.yaml", "drone-cv-system/config/camera_config.yaml"],
+      "support_level": "high",
+      "category": "detection_pollination"
+    },
+    {
+      "metric_name": "Training epochs (design target)",
+      "value": 100,
+      "unit": "epochs",
+      "how_computed": "model_config.yaml training.epochs: 100",
+      "evidence_files": ["drone-cv-system/config/model_config.yaml"],
+      "support_level": "medium",
+      "category": "detection_pollination",
+      "notes": "Config only — no training run artifacts in repo"
+    },
+    {
+      "metric_name": "NMS IoU threshold",
+      "value": 0.45,
+      "unit": "unitless (0–1)",
+      "how_computed": "camera_config.yaml nms_iou: 0.45",
+      "evidence_files": ["drone-cv-system/config/camera_config.yaml"],
+      "support_level": "high",
+      "category": "detection_pollination"
+    },
+    {
+      "metric_name": "Detection confidence threshold",
+      "value": 0.35,
+      "unit": "unitless (0–1)",
+      "how_computed": "camera_config.yaml confidence_threshold: 0.35",
+      "evidence_files": ["drone-cv-system/config/camera_config.yaml"],
+      "support_level": "high",
+      "category": "detection_pollination"
+    },
+    {
+      "metric_name": "Servo deploy pulse width",
+      "value": 1700,
+      "unit": "microseconds",
+      "how_computed": "pollination_manager.py and README.md: ~1700µs deploy, 1000µs stow",
+      "evidence_files": ["drone-cv-system/mission/pollination_manager.py", "drone-cv-system/README.md"],
+      "support_level": "high",
+      "category": "hardware_validation",
+      "notes": "Code implemented; no physical test log in repo"
+    },
+    {
+      "metric_name": "Servo PWM frequency",
+      "value": 50,
+      "unit": "Hz",
+      "how_computed": "pollination_manager.py: 50 Hz PWM on GPIO 18",
+      "evidence_files": ["drone-cv-system/mission/pollination_manager.py"],
+      "support_level": "high",
+      "category": "hardware_validation"
+    },
+    {
+      "metric_name": "Pixhawk UART baud rate",
+      "value": 921600,
+      "unit": "baud",
+      "how_computed": "mission_config.yaml pixhawk.baud_rate: 921600",
+      "evidence_files": ["drone-cv-system/config/mission_config.yaml"],
+      "support_level": "high",
+      "category": "hardware_validation"
+    },
+    {
+      "metric_name": "MAVLink telemetry message types",
+      "value": 7,
+      "unit": "message types",
+      "how_computed": "mavlink_interface.py handles: HEARTBEAT, ATTITUDE, GLOBAL_POSITION_INT, OPTICAL_FLOW_RAD, DISTANCE_SENSOR, EKF_STATUS_REPORT, SYS_STATUS",
+      "evidence_files": ["drone-cv-system/pixhawk/mavlink_interface.py"],
+      "support_level": "high",
+      "category": "hardware_validation"
+    },
+    {
+      "metric_name": "Heartbeat timeout watchdog",
+      "value": 3,
+      "unit": "seconds",
+      "how_computed": "mavlink_interface.py heartbeat watchdog thread; CLAUDE.md confirms 3-second timeout",
+      "evidence_files": ["drone-cv-system/pixhawk/mavlink_interface.py"],
+      "support_level": "high",
+      "category": "hardware_validation"
+    },
+    {
+      "metric_name": "Simulation battery drain modeled",
+      "value": "100 to ~72",
+      "unit": "percent over 90 seconds",
+      "how_computed": "missionGenerator.ts battery model: linear drain from 100% to ~72% over 90s mission",
+      "evidence_files": ["src/data/missionGenerator.ts"],
+      "support_level": "high",
+      "category": "mission_execution",
+      "notes": "Simulation model only — not validated against real battery data"
+    }
+  ]
+}
