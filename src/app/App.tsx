@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks'
+import { useState, useEffect } from 'preact/hooks'
 import { TerminalPanel } from '../components/TerminalPanel/TerminalPanel'
 import type { SimMode, LiveFrame, ReplayFrame, FlowerCluster, MissionPhase, AgentState } from '../models/types'
 import { TopDownView } from '../components/TopDownView/TopDownView'
@@ -8,6 +8,7 @@ import { ZoomPanel } from '../components/ZoomPanel/ZoomPanel'
 import { ReplayControls } from '../components/ReplayControls/ReplayControls'
 import { LiveStatus } from '../components/LiveStatus/LiveStatus'
 import { AgentCommentaryPanel } from '../components/AgentPanel/AgentCommentaryPanel'
+import { PanelErrorBoundary } from '../components/ErrorBoundary/PanelErrorBoundary'
 import { ModeSelector } from './ModeSelector'
 import { useReplayEngine } from '../simulation/replayEngine'
 import { useLiveInferenceEngine } from '../simulation/liveInferenceEngine'
@@ -16,6 +17,8 @@ import type { AgentStatus } from '../simulation/agentClient'
 // ── Live frame adapter ────────────────────────────────────────────────────
 // Converts a LiveFrame into a ReplayFrame so existing panels work unmodified.
 function liveToReplay(lf: LiveFrame): ReplayFrame {
+  const detections = Array.isArray(lf.inference?.detections) ? lf.inference.detections : []
+
   const phaseMap: Record<string, MissionPhase> = {
     idle: 'idle', arming: 'arming', takeoff: 'takeoff',
     scanning: 'scanning', planning: 'scanning',
@@ -40,14 +43,16 @@ function liveToReplay(lf: LiveFrame): ReplayFrame {
       visibleFlowerIds: lf.discoveredIds,
       candidateFlowerId: null,
       lockedFlowerId: lf.currentTargetId,
-      confidenceHistory: lf.inference?.detections.map(d => d.confidence) ?? [],
-      boundingBoxes: (lf.inference?.detections ?? []).map(d => ({
+      confidenceHistory: detections.map(d => d.confidence),
+      boundingBoxes: detections.map(d => {
+        const [x1 = 0, y1 = 0, x2 = 0, y2 = 0] = Array.isArray(d.bbox) ? d.bbox : [0, 0, 0, 0]
+        return {
         flowerId: d.id,
-        x: d.bbox[0] / 640, y: d.bbox[1] / 640,
-        w: (d.bbox[2] - d.bbox[0]) / 640,
-        h: (d.bbox[3] - d.bbox[1]) / 640,
+        x: x1 / 640, y: y1 / 640,
+        w: (x2 - x1) / 640,
+        h: (y2 - y1) / 640,
         confidence: d.confidence,
-      })),
+      }}),
     },
     flowers: lf.flowers.map(f => ({
       ...f,
@@ -63,7 +68,7 @@ function liveToReplay(lf: LiveFrame): ReplayFrame {
 
 // ── Sub-apps ──────────────────────────────────────────────────────────────
 
-function ReplayApp({ onExit }: { onExit: () => void }) {
+function ReplayApp({ onExit, isDark, onToggleTheme }: { onExit: () => void; isDark: boolean; onToggleTheme: () => void }) {
   const replay = useReplayEngine()
   const phase  = replay.currentFrame?.mission.phase ?? 'idle'
 
@@ -73,6 +78,8 @@ function ReplayApp({ onExit }: { onExit: () => void }) {
       phaseColor={getPhaseColor(phase)}
       elapsed={Math.floor(replay.currentTime)}
       modeLabel="REPLAY"
+      isDark={isDark}
+      onToggleTheme={onToggleTheme}
       headerRight={
         <button onClick={onExit} style={exitBtnStyle}>✕ EXIT</button>
       }
@@ -101,7 +108,7 @@ function ReplayApp({ onExit }: { onExit: () => void }) {
   )
 }
 
-function LiveApp({ onExit }: { onExit: () => void }) {
+function LiveApp({ onExit, isDark, onToggleTheme }: { onExit: () => void; isDark: boolean; onToggleTheme: () => void }) {
   const live = useLiveInferenceEngine()
   const lf   = live.currentFrame
   const adapted = lf ? liveToReplay(lf) : null
@@ -116,6 +123,8 @@ function LiveApp({ onExit }: { onExit: () => void }) {
       phaseColor={getLivePhaseColor(phase)}
       elapsed={Math.floor(lf?.time ?? 0)}
       modeLabel="LIVE"
+      isDark={isDark}
+      onToggleTheme={onToggleTheme}
       headerRight={
         <LiveStatus
           wsStatus={live.wsStatus}
@@ -159,34 +168,57 @@ function LiveApp({ onExit }: { onExit: () => void }) {
   )
 }
 
+// ── Theme hook ────────────────────────────────────────────────────────────
+
+function useTheme() {
+  const [isDark, setIsDark] = useState<boolean>(() => {
+    return localStorage.getItem('theme') !== 'light'
+  })
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light')
+    localStorage.setItem('theme', isDark ? 'dark' : 'light')
+  }, [isDark])
+
+  // Apply on first render
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light')
+  }, [])
+
+  return { isDark, toggleTheme: () => setIsDark(d => !d) }
+}
+
 // ── Root App ──────────────────────────────────────────────────────────────
 
 export function App() {
   const [mode, setMode] = useState<'select' | SimMode>('select')
+  const { isDark, toggleTheme } = useTheme()
 
-  if (mode === 'select') return <ModeSelector onSelect={setMode} />
-  if (mode === 'replay') return <ReplayApp onExit={() => setMode('select')} />
-  return <LiveApp onExit={() => setMode('select')} />
+  if (mode === 'select') return <ModeSelector onSelect={setMode} isDark={isDark} onToggleTheme={toggleTheme} />
+  if (mode === 'replay') return <ReplayApp onExit={() => setMode('select')} isDark={isDark} onToggleTheme={toggleTheme} />
+  return <LiveApp onExit={() => setMode('select')} isDark={isDark} onToggleTheme={toggleTheme} />
 }
 
 // ── Shared layout components ──────────────────────────────────────────────
 
-function AppShell({ phaseLabel, phaseColor, elapsed, modeLabel, headerRight, children }: {
+function AppShell({ phaseLabel, phaseColor, elapsed, modeLabel, headerRight, isDark, onToggleTheme, children }: {
   phaseLabel: string; phaseColor: string; elapsed: number
-  modeLabel: string; headerRight: preact.ComponentChild; children: preact.ComponentChildren
+  modeLabel: string; headerRight: preact.ComponentChild
+  isDark: boolean; onToggleTheme: () => void
+  children: preact.ComponentChildren
 }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh', background: '#030712', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh', background: 'var(--bg)', overflow: 'hidden' }}>
       <header style={{
-        padding: '8px 16px', borderBottom: '1px solid #1e3a5f',
-        background: 'linear-gradient(180deg, #0a1628 0%, #030712 100%)',
+        padding: '8px 16px', borderBottom: '1px solid var(--border)',
+        background: 'var(--header-bg)',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
       }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700, color: '#38bdf8', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
             Smart Pollinator — {modeLabel} MODE
           </div>
-          <div style={{ fontSize: 10, color: '#64748b', letterSpacing: '0.08em' }}>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.08em' }}>
             Autonomous Pollinator Drone Platform
           </div>
         </div>
@@ -198,12 +230,32 @@ function AppShell({ phaseLabel, phaseColor, elapsed, modeLabel, headerRight, chi
           }}>
             {phaseLabel.toUpperCase()}
           </div>
-          <div style={{ fontSize: 11, color: '#94a3b8' }}>T+{elapsed}s</div>
+          <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>T+{elapsed}s</div>
+          <ThemeToggleButton isDark={isDark} onToggle={onToggleTheme} />
           {headerRight}
         </div>
       </header>
       {children}
     </div>
+  )
+}
+
+function ThemeToggleButton({ isDark, onToggle }: { isDark: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      style={{
+        padding: '3px 9px', borderRadius: 4,
+        background: 'var(--exit-btn-bg)', border: '1px solid var(--exit-btn-border)',
+        color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer',
+        fontFamily: 'monospace', letterSpacing: '0.06em',
+        display: 'flex', alignItems: 'center', gap: 5,
+        transition: 'color 0.2s, background 0.2s',
+      }}
+    >
+      {isDark ? '☀' : '☾'}
+    </button>
   )
 }
 
@@ -217,10 +269,14 @@ function FourPanels({ frame, positionHistory, altitudeHistory, accumulatedEvents
 }) {
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
-      <div style={{ width: '60%', display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid #1e3a5f' }}>
+      <div style={{ width: '60%', display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid var(--border)' }}>
         <PanelBox label="Top-Down Mission View" flex={62} borderBottom>
           {frame
-            ? <TopDownView frame={frame} positionHistory={positionHistory} liveFrame={liveFrame} agentState={agentState} />
+            ? (
+              <PanelErrorBoundary panelName="Top-down mission view">
+                <TopDownView frame={frame} positionHistory={positionHistory} liveFrame={liveFrame} agentState={agentState} />
+              </PanelErrorBoundary>
+            )
             : <Placeholder label="Top-Down View" />}
         </PanelBox>
         <PanelBox label="Altitude / Side View" flex={38}>
@@ -232,12 +288,20 @@ function FourPanels({ frame, positionHistory, altitudeHistory, accumulatedEvents
       <div style={{ width: '40%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <PanelBox label="Telemetry Dashboard" flex={65} borderBottom>
           {frame
-            ? <TelemetryPanel frame={frame} accumulatedEvents={accumulatedEvents} agentState={agentState} />
+            ? (
+              <PanelErrorBoundary panelName="Telemetry dashboard">
+                <TelemetryPanel frame={frame} accumulatedEvents={accumulatedEvents} agentState={agentState} />
+              </PanelErrorBoundary>
+            )
             : <Placeholder label="Telemetry" />}
         </PanelBox>
         <PanelBox label="Camera / Flower Analysis" flex={35} relative minHeight={320}>
           {frame
-            ? <ZoomPanel frame={frame} livePng={liveFrame?.inference?.framePng ?? null} />
+            ? (
+              <PanelErrorBoundary panelName="Camera analysis">
+                <ZoomPanel frame={frame} livePng={liveFrame?.inference?.framePng ?? null} />
+              </PanelErrorBoundary>
+            )
             : <Placeholder label="Camera Analysis" />}
         </PanelBox>
       </div>
@@ -250,8 +314,8 @@ function PanelBox({ label, flex, borderBottom, relative, minHeight, children }: 
   relative?: boolean; minHeight?: number; children: preact.ComponentChildren
 }) {
   return (
-    <div style={{ flex, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', ...(borderBottom ? { borderBottom: '1px solid #1e3a5f' } : {}) }}>
-      <div style={{ flexShrink: 0, padding: '4px 10px', fontSize: 10, color: '#64748b', letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid #0f2744' }}>
+    <div style={{ flex, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', ...(borderBottom ? { borderBottom: '1px solid var(--border)' } : {}) }}>
+      <div style={{ flexShrink: 0, padding: '4px 10px', fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid var(--border-2)' }}>
         {label}
       </div>
       <div style={{ flex: 1, minHeight: minHeight ?? 0, overflow: 'hidden', ...(relative ? { position: 'relative' } : {}) }}>
@@ -263,7 +327,7 @@ function PanelBox({ label, flex, borderBottom, relative, minHeight, children }: 
 
 function BottomBar({ children }: { children: preact.ComponentChildren }) {
   return (
-    <div style={{ flexShrink: 0, borderTop: '1px solid #1e3a5f', background: '#0a1628', padding: '6px 16px' }}>
+    <div style={{ flexShrink: 0, borderTop: '1px solid var(--border)', background: 'var(--bottombar-bg)', padding: '6px 16px' }}>
       {children}
     </div>
   )
@@ -297,8 +361,8 @@ function Placeholder({ label }: { label: string }) {
 
 const exitBtnStyle: preact.JSX.CSSProperties = {
   padding: '3px 9px', borderRadius: 4,
-  background: '#1e1a2e', border: '1px solid #334155',
-  color: '#64748b', fontSize: 10, cursor: 'pointer',
+  background: 'var(--exit-btn-bg)', border: '1px solid var(--exit-btn-border)',
+  color: 'var(--text-muted)', fontSize: 10, cursor: 'pointer',
   fontFamily: 'monospace', letterSpacing: '0.06em',
 }
 

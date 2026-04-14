@@ -65,6 +65,21 @@ export default defineConfig({
     inferenceServerPlugin(),
   ],
   server: {
+    watch: {
+      // The frontend depends on backend services at runtime, but backend/docs/artifact
+      // edits should not invalidate the Vite graph or trigger full page reload storms.
+      ignored: [
+        '**/drone-cv-system/**',
+        '**/benchmark_results/**',
+        '**/metrics/**',
+        '**/skills/**',
+        '**/.cursor/**',
+        '**/raw_opticalflow_data.csv',
+        '**/*.md',
+        '**/*.yaml',
+        '**/*.yml',
+      ],
+    },
     proxy: {
       // Proxy /api/agent/* to agent server on port 8766
       '/api/agent': {

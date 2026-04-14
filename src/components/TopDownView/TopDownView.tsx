@@ -193,7 +193,7 @@ function DroneTopDown({ x, y, yaw, phase, frameTime }: {
         const spinAngle = (frameTime * 720 * (i % 2 === 0 ? 1 : -1)) % 360
         return (
           <g key={i} transform={`translate(${rx}, ${ry})`}>
-            <circle cx={0} cy={0} r={ROTOR_R} fill="#0f2744" stroke="#38bdf8" strokeWidth={1} opacity={0.8} />
+            <circle cx={0} cy={0} r={ROTOR_R} style={{ fill: 'var(--drone-body)' }} stroke="#38bdf8" strokeWidth={1} opacity={0.8} />
             <g transform={`rotate(${spinAngle})`}>
               <ellipse cx={0} cy={0} rx={ROTOR_R * 0.85} ry={1.2} fill="#38bdf8" opacity={0.5} />
             </g>
@@ -209,7 +209,7 @@ function DroneTopDown({ x, y, yaw, phase, frameTime }: {
             return `${Math.cos(a) * BODY_R},${Math.sin(a) * BODY_R}`
           }).join(' ')
         }
-        fill="#1e3a5f"
+        style={{ fill: 'var(--drone-body)' }}
         stroke={phaseColor}
         strokeWidth={1.5}
       />
@@ -240,6 +240,7 @@ export function TopDownView({ frame, positionHistory, liveFrame, agentState }: P
   const mission = frame.mission
   const droneSvg = gardenToSvg(drone.x, drone.y)
   const isLiveMode = liveFrame !== null && liveFrame !== undefined
+  const lf = isLiveMode ? liveFrame : null
 
   return (
     <svg
@@ -339,7 +340,7 @@ export function TopDownView({ frame, positionHistory, liveFrame, agentState }: P
         return (
           <g key={wp.id}>
             <circle cx={p.x} cy={p.y} r={isActive ? 5 : 3}
-              fill={isActive ? '#0a1628' : 'none'}
+              style={isActive ? { fill: 'var(--waypoint-fill)' } : undefined} fill={isActive ? undefined : 'none'}
               stroke={color} strokeWidth={isActive ? 1.5 : 1}
               opacity={isCompleted ? 0.3 : 0.8}
             />
@@ -359,16 +360,16 @@ export function TopDownView({ frame, positionHistory, liveFrame, agentState }: P
       })}
 
       {/* Mode 2: Ghost outlines for undiscovered flowers */}
-      {isLiveMode && liveFrame!.flowers
+      {lf && lf.flowers
         .filter(f => f.state === 'undiscovered')
         .map(f => <GhostFlower key={f.id} x={f.x} y={f.y} />)
       }
 
       {/* Mode 2: Lawnmower scan sweep line */}
-      {isLiveMode && (liveFrame!.phase === 'scanning') && (() => {
-        const sweepSvg = gardenToSvg(liveFrame!.drone.x, 0)
-        const sweepTop = gardenToSvg(liveFrame!.drone.x, 0)
-        const sweepBot = gardenToSvg(liveFrame!.drone.x, GARDEN_SIZE)
+      {lf && (lf.phase === 'scanning') && (() => {
+        const sweepSvg = gardenToSvg(lf.drone.x, 0)
+        const sweepTop = gardenToSvg(lf.drone.x, 0)
+        const sweepBot = gardenToSvg(lf.drone.x, GARDEN_SIZE)
         return (
           <g>
             <line
@@ -379,20 +380,20 @@ export function TopDownView({ frame, positionHistory, liveFrame, agentState }: P
             />
             {/* Scan pass label */}
             <rect x={sweepSvg.x + 3} y={MARGIN + 4} width={52} height={13} rx={2}
-              fill="#030712" opacity={0.75} />
+              style={{ fill: 'var(--scan-label-bg)' }} opacity={0.75} />
             <text x={sweepSvg.x + 7} y={MARGIN + 13} fontSize={8}
               fill="#06b6d4" fontWeight="bold" letterSpacing="0.06em">
-              PASS {liveFrame!.scanPassIndex + 1}/4
+              PASS {lf.scanPassIndex + 1}/4
             </text>
           </g>
         )
       })()}
 
       {/* Mode 2: TSP route overlay — shown live as flowers are discovered */}
-      {isLiveMode && liveFrame!.tspRoute.length > 1 && (() => {
-        const routeFlowers = liveFrame!.tspRoute
-          .map(id => liveFrame!.flowers.find(f => f.id === id))
-          .filter(Boolean) as typeof liveFrame.flowers
+      {lf && lf.tspRoute.length > 1 && (() => {
+        const routeFlowers = lf.tspRoute
+          .map(id => lf.flowers.find(f => f.id === id))
+          .filter(Boolean) as typeof lf.flowers
         if (routeFlowers.length < 2) return null
         const pts = routeFlowers.map(f => {
           const p = gardenToSvg(f.x, f.y)
@@ -449,11 +450,11 @@ export function TopDownView({ frame, positionHistory, liveFrame, agentState }: P
       )}
 
       {/* Agent-suggested route overlay (purple dashed, labeled "AI ROUTE") */}
-      {isLiveMode && (agentState?.lastDecision?.priorityOverride?.length ?? 0) > 1 && (() => {
-        const agentRoute = agentState!.lastDecision!.priorityOverride
+      {lf && (agentState?.lastDecision?.priorityOverride?.length ?? 0) > 1 && (() => {
+        const agentRoute = agentState?.lastDecision?.priorityOverride ?? []
         const routeFlowers = agentRoute
-          .map(id => liveFrame!.flowers.find(f => f.id === id))
-          .filter(Boolean) as typeof liveFrame.flowers
+          .map(id => lf.flowers.find(f => f.id === id))
+          .filter(Boolean) as typeof lf.flowers
         if (routeFlowers.length < 2) return null
         const pts = routeFlowers.map(f => {
           const p = gardenToSvg(f.x, f.y)
@@ -505,7 +506,7 @@ export function TopDownView({ frame, positionHistory, liveFrame, agentState }: P
         return (
           <g>
             <rect x={home.x - 5} y={home.y - 5} width={10} height={10}
-              fill="#0a1628" stroke="#f59e0b" strokeWidth={1} />
+              style={{ fill: 'var(--home-fill)' }} stroke="#f59e0b" strokeWidth={1} />
             <text x={home.x} y={home.y + 3} fontSize={7} fill="#f59e0b" textAnchor="middle">H</text>
           </g>
         )
@@ -515,7 +516,7 @@ export function TopDownView({ frame, positionHistory, liveFrame, agentState }: P
       {!isLiveMode && (
         <>
           <rect x={MARGIN + 2} y={MARGIN + 2} width={160} height={18} rx={3}
-            fill="#030712" opacity={0.7} />
+            style={{ fill: 'var(--phase-overlay-bg)' }} opacity={0.7} />
           <text x={MARGIN + 8} y={MARGIN + 14} fontSize={9}
             fill={getPhaseColor(mission.phase)} fontWeight="bold" letterSpacing="0.08em">
             {mission.phase.replace(/_/g, ' ').toUpperCase()}
@@ -525,8 +526,8 @@ export function TopDownView({ frame, positionHistory, liveFrame, agentState }: P
 
       {/* Scale indicator */}
       <line x1={SVG_SIZE - MARGIN - 48} y1={SVG_SIZE - 10} x2={SVG_SIZE - MARGIN} y2={SVG_SIZE - 10}
-        stroke="#334155" strokeWidth={1.5} />
-      <text x={SVG_SIZE - MARGIN - 24} y={SVG_SIZE - 3} fontSize={7} fill="#64748b" textAnchor="middle">
+        stroke="var(--section-header)" strokeWidth={1.5} />
+      <text x={SVG_SIZE - MARGIN - 24} y={SVG_SIZE - 3} fontSize={7} style={{ fill: 'var(--text-muted)' }} textAnchor="middle">
         {(48 / SCALE).toFixed(1)}m
       </text>
     </svg>

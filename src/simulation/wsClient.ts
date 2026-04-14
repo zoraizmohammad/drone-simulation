@@ -15,6 +15,25 @@ const WS_URL = 'ws://localhost:8765/inference'
 const MAX_BACKOFF_MS = 5000
 const INFERENCE_INTERVAL_MS = 100
 
+function isInferenceResultPayload(value: unknown): value is InferenceResult {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<InferenceResult>
+  if (!Array.isArray(candidate.detections)) return false
+  if (typeof candidate.inferenceMs !== 'number') return false
+  if (candidate.inferenceMode !== 'coral' && candidate.inferenceMode !== 'onnx' && candidate.inferenceMode !== 'mock') return false
+  if (!Array.isArray(candidate.tspSuggestion)) return false
+
+  return candidate.detections.every(det =>
+    !!det &&
+    typeof det.id === 'string' &&
+    typeof det.confidence === 'number' &&
+    typeof det.cls === 'string' &&
+    Array.isArray(det.bbox) &&
+    det.bbox.length === 4 &&
+    det.bbox.every(v => typeof v === 'number'),
+  )
+}
+
 export class WsClient {
   private ws: WebSocket | null = null
   private status: WsStatus = 'disconnected'
@@ -55,7 +74,12 @@ export class WsClient {
 
     this.ws.onmessage = (ev) => {
       try {
-        const result: InferenceResult = JSON.parse(ev.data)
+        const parsed: unknown = JSON.parse(ev.data)
+        if (!isInferenceResultPayload(parsed)) {
+          this.log('error', 'WS payload ignored — invalid inference schema')
+          return
+        }
+        const result: InferenceResult = parsed
         // Log receive summary
         const dets = result.detections
         const modeTag = result.inferenceMode === 'coral'

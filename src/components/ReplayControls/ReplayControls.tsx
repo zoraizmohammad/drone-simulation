@@ -30,9 +30,9 @@ export function ReplayControls({ isPlaying, speed, currentTime, totalTime, onPla
     textTransform: 'uppercase' as const,
     cursor: 'pointer',
     fontFamily: 'monospace',
-    border: `1px solid ${active ? '#38bdf8' : '#1e3a5f'}`,
-    background: active ? '#38bdf822' : '#0a1628',
-    color: active ? '#38bdf8' : '#64748b',
+    border: `1px solid ${active ? '#38bdf8' : 'var(--border)'}`,
+    background: active ? '#38bdf822' : 'var(--surface)',
+    color: active ? '#38bdf8' : 'var(--text-muted)',
     transition: 'all 0.15s',
   })
 
@@ -71,7 +71,7 @@ export function ReplayControls({ isPlaying, speed, currentTime, totalTime, onPla
 
       {/* Speed */}
       <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
-        <span style={{ fontSize: '9px', color: '#334155', marginRight: '2px' }}>SPEED</span>
+        <span style={{ fontSize: '9px', color: 'var(--section-header)', marginRight: '2px' }}>SPEED</span>
         {([1, 2, 4] as ReplaySpeed[]).map(s => (
           <button key={s} style={speedBtnStyle(s)} onClick={() => onSetSpeed(s)}>
             {s}x
@@ -89,9 +89,9 @@ export function ReplayControls({ isPlaying, speed, currentTime, totalTime, onPla
         fontFamily: 'monospace',
         minWidth: '80px',
       }}>
-        <span style={{ color: '#94a3b8' }}>{formatTime(currentTime)}</span>
-        <span style={{ color: '#334155' }}>/</span>
-        <span style={{ color: '#475569' }}>{formatTime(totalTime)}</span>
+        <span style={{ color: 'var(--text-dim)' }}>{formatTime(currentTime)}</span>
+        <span style={{ color: 'var(--section-header)' }}>/</span>
+        <span style={{ color: 'var(--text-faint)' }}>{formatTime(totalTime)}</span>
       </div>
 
       {/* Scrubber */}
@@ -108,7 +108,7 @@ export function ReplayControls({ isPlaying, speed, currentTime, totalTime, onPla
             height: '4px',
             accentColor: '#38bdf8',
             cursor: 'pointer',
-            background: `linear-gradient(to right, #38bdf8 ${progress * 100}%, #1e3a5f ${progress * 100}%)`,
+            background: `linear-gradient(to right, #38bdf8 ${progress * 100}%, var(--border) ${progress * 100}%)`,
             borderRadius: '2px',
             outline: 'none',
             border: 'none',
@@ -117,7 +117,7 @@ export function ReplayControls({ isPlaying, speed, currentTime, totalTime, onPla
       </div>
 
       {/* Mission progress indicator */}
-      <div style={{ fontSize: '9px', color: '#334155', whiteSpace: 'nowrap' }}>
+      <div style={{ fontSize: '9px', color: 'var(--section-header)', whiteSpace: 'nowrap' }}>
         T+{currentTime.toFixed(1)}s
       </div>
     </div>

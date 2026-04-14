@@ -1,7 +1,85 @@
 @import "tailwindcss";
 
-:root {
+/* ── Theme tokens ─────────────────────────────────────────────────────────── */
+
+:root, [data-theme="dark"] {
   color-scheme: dark;
+  --bg:              #030712;
+  --surface:         #0a1628;
+  --surface-2:       #0f2744;
+  --border:          #1e3a5f;
+  --border-2:        #0f2744;
+  --text:            #e2e8f0;
+  --text-muted:      #64748b;
+  --text-dim:        #94a3b8;
+  --text-faint:      #475569;
+  --header-bg:       linear-gradient(180deg, #0a1628 0%, #030712 100%);
+  --bottombar-bg:    #0a1628;
+  --exit-btn-bg:     #1e1a2e;
+  --exit-btn-border: #334155;
+  /* Panel internals */
+  --section-header:  #334155;
+  --gauge-track:     #0f2744;
+  --gauge-border:    #1e3a5f;
+  --sky-top:         #0a1628;
+  --sky-bottom:      #0f1f35;
+  --drone-body:      #0f2744;
+  --drone-stroke:    #94a3b8;
+  --camera-bg:       #020617;
+  --camera-grid:     #0f172a;
+  --hud-bg:          #030712;
+  --hud-panel:       #0a1628;
+  --hud-border:      #1e3a5f;
+  --hud-label:       #475569;
+  --hud-header:      #334155;
+  --terminal-bg:     #030810;
+  --terminal-header: #070f1e;
+  --terminal-row-border: #050d1a;
+  --terminal-ts:     #2a3a4a;
+  --home-fill:       #0a1628;
+  --phase-overlay-bg: #030712;
+  --waypoint-fill:   #0a1628;
+  --scan-label-bg:   #030712;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg:              #f0f4f8;
+  --surface:         #ffffff;
+  --surface-2:       #e8eef5;
+  --border:          #b0c4d8;
+  --border-2:        #d0dce8;
+  --text:            #0f172a;
+  --text-muted:      #475569;
+  --text-dim:        #334155;
+  --text-faint:      #64748b;
+  --header-bg:       linear-gradient(180deg, #dde8f4 0%, #f0f4f8 100%);
+  --bottombar-bg:    #dde8f4;
+  --exit-btn-bg:     #e2eaf3;
+  --exit-btn-border: #b0c4d8;
+  /* Panel internals */
+  --section-header:  #64748b;
+  --gauge-track:     #dde8f4;
+  --gauge-border:    #b0c4d8;
+  --sky-top:         #a8d4f0;
+  --sky-bottom:      #c8e8fa;
+  --drone-body:      #2d5080;
+  --drone-stroke:    #64748b;
+  --camera-bg:       #e4eaf2;
+  --camera-grid:     #c8d4e0;
+  --hud-bg:          #f0f4f8;
+  --hud-panel:       #ffffff;
+  --hud-border:      #b0c4d8;
+  --hud-label:       #64748b;
+  --hud-header:      #94a3b8;
+  --terminal-bg:     #1a2535;
+  --terminal-header: #0f1a28;
+  --terminal-row-border: #0a1220;
+  --terminal-ts:     #475569;
+  --home-fill:       #ffffff;
+  --phase-overlay-bg: #f0f4f8;
+  --waypoint-fill:   #ffffff;
+  --scan-label-bg:   #f0f4f8;
 }
 
 *, *::before, *::after {
@@ -13,8 +91,8 @@ html, body, #app {
   padding: 0;
   width: 100%;
   height: 100%;
-  background-color: #030712;
-  color: #e2e8f0;
+  background-color: var(--bg);
+  color: var(--text);
   font-family: 'JetBrains Mono', 'Fira Mono', 'Cascadia Code', 'Consolas', monospace;
   overflow: hidden;
 }

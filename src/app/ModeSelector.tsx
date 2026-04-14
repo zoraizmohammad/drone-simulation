@@ -2,20 +2,37 @@ import type { SimMode } from '../models/types'
 
 interface Props {
   onSelect: (mode: SimMode) => void
+  isDark: boolean
+  onToggleTheme: () => void
 }
 
-export function ModeSelector({ onSelect }: Props) {
+export function ModeSelector({ onSelect, isDark, onToggleTheme }: Props) {
   return (
     <div style={{
       position: 'fixed', inset: 0,
-      background: '#030712',
+      background: 'var(--bg)',
       display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',
       fontFamily: 'monospace',
       zIndex: 100,
     }}>
+      {/* Theme toggle */}
+      <button
+        onClick={onToggleTheme}
+        title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+        style={{
+          position: 'absolute', top: 16, right: 16,
+          padding: '4px 10px', borderRadius: 4,
+          background: 'var(--exit-btn-bg)', border: '1px solid var(--exit-btn-border)',
+          color: 'var(--text-muted)', fontSize: 14, cursor: 'pointer',
+          fontFamily: 'monospace',
+        }}
+      >
+        {isDark ? '☀' : '☾'}
+      </button>
+
       {/* Title */}
-      <div style={{ marginBottom: 8, fontSize: 11, color: '#334155', letterSpacing: '0.2em', textTransform: 'uppercase' }}>
+      <div style={{ marginBottom: 8, fontSize: 11, color: 'var(--text-faint)', letterSpacing: '0.2em', textTransform: 'uppercase' }}>
         Autonomous Pollinator Drone Platform
       </div>
       <div style={{ marginBottom: 48, fontSize: 22, fontWeight: 700, color: '#38bdf8', letterSpacing: '0.08em' }}>
@@ -59,7 +76,7 @@ export function ModeSelector({ onSelect }: Props) {
         />
       </div>
 
-      <div style={{ marginTop: 40, fontSize: 9, color: '#1e3a5f', letterSpacing: '0.1em' }}>
+      <div style={{ marginTop: 40, fontSize: 9, color: 'var(--border)', letterSpacing: '0.1em' }}>
         Mode 2 requires Python 3.9+ · drone-cv-system/server/requirements_server.txt
       </div>
     </div>
@@ -76,7 +93,7 @@ function ModeCard({
     <div
       style={{
         width: 300, padding: '28px 28px 24px',
-        background: '#0a1628',
+        background: 'var(--surface)',
         border: `1px solid ${accent}44`,
         borderRadius: 8,
         display: 'flex', flexDirection: 'column', gap: 16,
@@ -99,11 +116,11 @@ function ModeCard({
         )}
       </div>
 
-      <div style={{ fontSize: 16, fontWeight: 700, color: '#e2e8f0' }}>{title}</div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{title}</div>
 
       <ul style={{ margin: 0, paddingLeft: 16, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 7 }}>
         {description.map(d => (
-          <li key={d} style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'flex-start', gap: 7 }}>
+          <li key={d} style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'flex-start', gap: 7 }}>
             <span style={{ color: accent, marginTop: 1 }}>›</span> {d}
           </li>
         ))}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'preact/hooks'
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { TerminalEntry, TerminalEntryType } from '../../models/types'
 
 // ── Color map ────────────────────────────────────────────────────────────────
@@ -92,18 +92,14 @@ interface Props {
 
 export function TerminalPanel({ entries, onClose }: Props) {
   const [filter, setFilter]         = useState<FilterMode>('ALL')
-  const [visible, setVisible]       = useState<TerminalEntry[]>([])
   const [pinned, setPinned]         = useState(true)
   const clearBeforeId               = useRef(0)
   const scrollRef                   = useRef<HTMLDivElement | null>(null)
 
-  // Recompute visible list when entries or filter changes
-  useEffect(() => {
+  const visible = useMemo(() => {
     const allowed = FILTER_TYPES[filter]
-    setVisible(
-      (allowed === null ? entries : entries.filter(e => allowed.includes(e.type)))
-        .filter(e => e.id > clearBeforeId.current)
-    )
+    return (allowed === null ? entries : entries.filter(e => allowed.includes(e.type)))
+      .filter(e => e.id > clearBeforeId.current)
   }, [entries, filter])
 
   // Auto-scroll when pinned
@@ -117,13 +113,12 @@ export function TerminalPanel({ entries, onClose }: Props) {
     const el = scrollRef.current
     if (!el) return
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40
-    setPinned(atBottom)
+    setPinned(prev => (prev === atBottom ? prev : atBottom))
   }
 
   const handleClear = () => {
     const last = entries[entries.length - 1]
     clearBeforeId.current = last?.id ?? 0
-    setVisible([])
   }
 
   // ── Filter button style ───────────────────────────────────────────────────

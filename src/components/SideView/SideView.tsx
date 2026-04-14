@@ -107,8 +107,8 @@ export function SideView({ frame, altitudeHistory }: Props) {
           <stop offset="100%" stopColor="#1a2e10" />
         </linearGradient>
         <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#0a1628" />
-          <stop offset="100%" stopColor="#0f1f35" />
+          <stop offset="0%" style={{ stopColor: 'var(--sky-top)' }} />
+          <stop offset="100%" style={{ stopColor: 'var(--sky-bottom)' }} />
         </linearGradient>
       </defs>
 
@@ -140,13 +140,13 @@ export function SideView({ frame, altitudeHistory }: Props) {
         return (
           <g key={alt}>
             <line x1={MARGIN_L} y1={y} x2={SVG_W - MARGIN_R} y2={y}
-              stroke={isPatrol ? '#1e3a5f' : '#162033'}
+              stroke={isPatrol ? 'var(--border)' : 'var(--border-2)'}
               strokeWidth={isPatrol ? 1 : 0.5}
               strokeDasharray={alt > 0 ? '3,6' : 'none'}
               opacity={0.7}
             />
             <text x={MARGIN_L - 4} y={y + 3} fontSize={8}
-              fill={isPatrol ? '#38bdf8' : '#334155'} textAnchor="end">
+              fill={isPatrol ? '#38bdf8' : 'var(--section-header)'} textAnchor="end">
               {alt}m
             </text>
           </g>
@@ -207,14 +207,14 @@ export function SideView({ frame, altitudeHistory }: Props) {
       <g transform={`translate(${droneChartX}, ${droneChartY})`} filter="url(#glowSide)">
         {/* Side body */}
         <rect x={-8} y={-3} width={16} height={6} rx={2}
-          fill="#0f2744" stroke={phaseColor} strokeWidth={1.2} />
+          style={{ fill: 'var(--drone-body)' }} stroke={phaseColor} strokeWidth={1.2} />
         {/* Left rotor arm */}
-        <line x1={-8} y1={-2} x2={-16} y2={-5} stroke="#94a3b8" strokeWidth={1.5} />
-        <ellipse cx={-16} cy={-5} rx={6} ry={2} fill="#0f2744" stroke="#38bdf8" strokeWidth={1}
+        <line x1={-8} y1={-2} x2={-16} y2={-5} style={{ stroke: 'var(--drone-stroke)' }} strokeWidth={1.5} />
+        <ellipse cx={-16} cy={-5} rx={6} ry={2} style={{ fill: 'var(--drone-body)' }} stroke="#38bdf8" strokeWidth={1}
           opacity={0.8} />
         {/* Right rotor arm */}
-        <line x1={8} y1={-2} x2={16} y2={-5} stroke="#94a3b8" strokeWidth={1.5} />
-        <ellipse cx={16} cy={-5} rx={6} ry={2} fill="#0f2744" stroke="#38bdf8" strokeWidth={1}
+        <line x1={8} y1={-2} x2={16} y2={-5} style={{ stroke: 'var(--drone-stroke)' }} strokeWidth={1.5} />
+        <ellipse cx={16} cy={-5} rx={6} ry={2} style={{ fill: 'var(--drone-body)' }} stroke="#38bdf8" strokeWidth={1}
           opacity={0.8} />
         {/* Landing gear */}
         <line x1={-5} y1={3} x2={-5} y2={7} stroke="#475569" strokeWidth={1} />
@@ -230,8 +230,8 @@ export function SideView({ frame, altitudeHistory }: Props) {
         return (
           <g opacity={0.6}>
             <line x1={MARGIN_L} y1={py} x2={MARGIN_L + 40} y2={py}
-              stroke="#1e3a5f" strokeWidth={1} strokeDasharray="2,4" />
-            <text x={MARGIN_L + 42} y={py + 3} fontSize={7} fill="#1e3a5f">Patrol</text>
+              stroke="var(--border)" strokeWidth={1} strokeDasharray="2,4" />
+            <text x={MARGIN_L + 42} y={py + 3} fontSize={7} style={{ fill: 'var(--border)' }}>Patrol</text>
           </g>
         )
       })()}
@@ -239,7 +239,7 @@ export function SideView({ frame, altitudeHistory }: Props) {
       {/* Y-axis label */}
       <text
         x={8} y={MARGIN_T + CHART_H / 2}
-        fontSize={8} fill="#475569"
+        fontSize={8} style={{ fill: 'var(--text-faint)' }}
         textAnchor="middle"
         transform={`rotate(-90, 8, ${MARGIN_T + CHART_H / 2})`}
       >
@@ -252,13 +252,13 @@ export function SideView({ frame, altitudeHistory }: Props) {
       </text>
 
       {/* X axis label */}
-      <text x={MARGIN_L + CHART_W / 2} y={SVG_H - 2} fontSize={8} fill="#334155" textAnchor="middle">
+      <text x={MARGIN_L + CHART_W / 2} y={SVG_H - 2} fontSize={8} style={{ fill: 'var(--section-header)' }} textAnchor="middle">
         HORIZONTAL TRAVERSE
       </text>
 
       {/* Border */}
       <rect x={MARGIN_L} y={MARGIN_T} width={CHART_W} height={CHART_H}
-        fill="none" stroke="#1e3a5f" strokeWidth={0.8} />
+        fill="none" stroke="var(--border)" strokeWidth={0.8} />
     </svg>
   )
 }

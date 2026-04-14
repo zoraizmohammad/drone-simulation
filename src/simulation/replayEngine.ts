@@ -25,7 +25,6 @@ const ALTITUDE_HISTORY_LENGTH = 150 // frames
 
 export function useReplayEngine(): ReplayState {
   const frames = useRef<ReplayFrame[]>([])
-  const [frameIndex, setFrameIndex] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [speed, setSpeedState] = useState<ReplaySpeed>(1)
   const speedRef = useRef<ReplaySpeed>(1)
@@ -100,18 +99,19 @@ export function useReplayEngine(): ReplayState {
         }
 
         // Accumulate events
+        let eventsChanged = false
         if (frame.events.length > 0) {
           accEventsRef.current = [...accEventsRef.current, ...frame.events]
           if (accEventsRef.current.length > 100) {
             accEventsRef.current = accEventsRef.current.slice(-100)
           }
-          setAccumulatedEvents([...accEventsRef.current])
+          eventsChanged = true
         }
 
-        setFrameIndex(newIdx)
         setCurrentFrameData(frame)
         setPositionHistory([...posHistoryRef.current])
         setAltitudeHistory([...altHistoryRef.current])
+        if (eventsChanged) setAccumulatedEvents([...accEventsRef.current])
       }
     }
 
@@ -146,13 +146,10 @@ export function useReplayEngine(): ReplayState {
     altHistoryRef.current = []
     accEventsRef.current = []
     accumulatedTimeRef.current = 0
-    setFrameIndex(0)
     setPositionHistory([])
     setAltitudeHistory([])
     setAccumulatedEvents([])
-    if (frames.current.length > 0) {
-      setCurrentFrameData(frames.current[0])
-    }
+    if (frames.current.length > 0) setCurrentFrameData(frames.current[0])
   }, [pause])
 
   const setSpeed = useCallback((s: ReplaySpeed) => {
@@ -182,11 +179,7 @@ export function useReplayEngine(): ReplayState {
       .flatMap(f => f.events)
       .slice(-100)
     setAccumulatedEvents([...accEventsRef.current])
-
-    setFrameIndex(newIdx)
-    if (frames.current[newIdx]) {
-      setCurrentFrameData(frames.current[newIdx])
-    }
+    if (frames.current[newIdx]) setCurrentFrameData(frames.current[newIdx])
     setPositionHistory([...posHistoryRef.current])
     setAltitudeHistory([...altHistoryRef.current])
   }, [])

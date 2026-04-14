@@ -38,6 +38,9 @@ export function useLiveInferenceEngine(): LiveInferenceState {
   const latestInf    = useRef<InferenceResult | null>(null)
   const frameIdxRef  = useRef(0)
   const lastPhaseRef = useRef<string>('')
+  const mountedRef   = useRef(false)
+  const startingRef  = useRef(false)
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [frame, setFrame]           = useState<LiveFrame | null>(null)
   const [wsStatus, setWsStatus]     = useState<WsStatus>('disconnected')
@@ -60,6 +63,7 @@ export function useLiveInferenceEngine(): LiveInferenceState {
   // Terminal log: accumulate in a ref, sync to state every 250 ms
   const termBufRef   = useRef<TerminalEntry[]>([])
   const termIdRef    = useRef(0)
+  const termLastFlushedIdRef = useRef(0)
   const termSyncRef  = useRef<ReturnType<typeof setInterval> | null>(null)
   const [terminalEntries, setTermEntries] = useState<TerminalEntry[]>([])
 
@@ -179,84 +183,102 @@ export function useLiveInferenceEngine(): LiveInferenceState {
   }, [agentStatus])
 
   const start = useCallback(async () => {
-    // Reset terminal
-    termBufRef.current = []
-    termIdRef.current  = 0
-    setTermEntries([])
-    pushTerminal('sys', 'SESSION START — live inference engine initialising…')
+    if (startingRef.current || isRunning) return
+    startingRef.current = true
+    try {
+      // Reset terminal
+      termBufRef.current = []
+      termIdRef.current  = 0
+      termLastFlushedIdRef.current = 0
+      setTermEntries([])
+      pushTerminal('sys', 'SESSION START — live inference engine initialising…')
 
-    await spawnInferenceServer()
-    // Small delay to give server time to boot
-    await new Promise(r => setTimeout(r, 800))
+      await spawnInferenceServer()
+      // Small delay to give server time to boot
+      await new Promise(r => setTimeout(r, 800))
 
-    const nav = new AutonomousNavigator(Date.now())
-    nav.setTerminalCallback(pushTerminal)
-    navRef.current = nav
+      const nav = new AutonomousNavigator(Date.now())
+      nav.setTerminalCallback(pushTerminal)
+      navRef.current = nav
 
-    const ws = new WsClient(onWsStatus, onWsMessage, pushTerminal)
-    wsRef.current = ws
-    ws.connect()
+      const ws = new WsClient(onWsStatus, onWsMessage, pushTerminal)
+      wsRef.current = ws
+      ws.connect()
 
-    // Agent client — silently degrades if server unavailable
-    const agent = new AgentClient(onAgentDecision, onAgentCommentary, onAgentStatus)
-    agentRef.current = agent
-    agent.connect()
-    // Wire LangChain callback stream → drone terminal panel.
-    // Once /health returns 200, openTerminalWs() is called automatically
-    // inside setStatus('connected') in AgentClient.
-    agent.connectTerminalStream(pushTerminal)
-    pushTerminal('sys', 'AGENT-CLIENT  connecting to :8766 — LangChain callback stream requested')
-    lastPhaseRef.current = ''
-    frameIdxRef.current  = 0
+      // Agent client — silently degrades if server unavailable
+      const agent = new AgentClient(onAgentDecision, onAgentCommentary, onAgentStatus)
+      agentRef.current = agent
+      agent.connect()
+      // Wire LangChain callback stream → drone terminal panel.
+      // Once /health returns 200, openTerminalWs() is called automatically
+      // inside setStatus('connected') in AgentClient.
+      agent.connectTerminalStream(pushTerminal)
+      pushTerminal('sys', 'AGENT-CLIENT  connecting to :8766 — LangChain callback stream requested')
+      lastPhaseRef.current = ''
+      frameIdxRef.current  = 0
 
-    // Sync terminal buffer to state every 250 ms
-    if (termSyncRef.current) clearInterval(termSyncRef.current)
-    termSyncRef.current = setInterval(() => {
-      setTermEntries(prev =>
-        termBufRef.current.length !== prev.length ? [...termBufRef.current] : prev
-      )
-    }, 250)
+      // Sync terminal buffer to state every 500 ms and only when there are new entries
+      if (termSyncRef.current) clearInterval(termSyncRef.current)
+      termSyncRef.current = setInterval(() => {
+        const last = termBufRef.current[termBufRef.current.length - 1]
+        const lastId = last?.id ?? 0
+        if (lastId === termLastFlushedIdRef.current) return
+        termLastFlushedIdRef.current = lastId
+        setTermEntries([...termBufRef.current])
+      }, 500)
 
-    lastTimeRef.current = null
-    latestInf.current   = null
-    setIsRunning(true)
-    rafRef.current = requestAnimationFrame(tick)
+      lastTimeRef.current = null
+      latestInf.current   = null
+      setIsRunning(true)
+      rafRef.current = requestAnimationFrame(tick)
+    } finally {
+      startingRef.current = false
+    }
   }, [tick, onWsStatus, onWsMessage, pushTerminal, onAgentDecision, onAgentCommentary, onAgentStatus])
 
-  const stop = useCallback(() => {
+  const stop = useCallback((resetState = true) => {
+    startingRef.current = false
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    rafRef.current = null
     if (termSyncRef.current) { clearInterval(termSyncRef.current); termSyncRef.current = null }
+    if (restartTimerRef.current) { clearTimeout(restartTimerRef.current); restartTimerRef.current = null }
     wsRef.current?.disconnect()
     agentRef.current?.disconnect()
     wsRef.current    = null
     agentRef.current = null
     navRef.current   = null
-    setIsRunning(false)
-    setFrame(null)
-    setWsStatus('disconnected')
-    setAgentStatus('disconnected')
-    setAgentState({ isConnected: false, lastDecision: null, commentary: [], agentMs: 0, decisionsTotal: 0, overridesApplied: 0 })
-    setTermEntries([])
+    if (resetState && mountedRef.current) {
+      setIsRunning(false)
+      setFrame(null)
+      setWsStatus('disconnected')
+      setAgentStatus('disconnected')
+      setAgentState({ isConnected: false, lastDecision: null, commentary: [], agentMs: 0, decisionsTotal: 0, overridesApplied: 0 })
+      setTermEntries([])
+    }
     termBufRef.current      = []
     lastDecisionRef.current = null
     commentaryRef.current   = []
     decisionsTotalRef.current = 0
     overridesRef.current      = 0
+    termLastFlushedIdRef.current = 0
+    lastTimeRef.current = null
+    latestInf.current = null
   }, [])
 
   const restart = useCallback(() => {
     stop()
-    setTimeout(start, 100)
+    restartTimerRef.current = setTimeout(start, 100)
   }, [stop, start])
 
   // Auto-start when hook mounts
   useEffect(() => {
+    mountedRef.current = true
     start()
     return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      wsRef.current?.disconnect()
+      mountedRef.current = false
+      stop(false)
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [start, stop])
 
   return { currentFrame: frame, wsStatus, inferenceMode, inferenceMs, isRunning, terminalEntries, agentStatus, agentState, restart, stop }
 }
