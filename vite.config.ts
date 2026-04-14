@@ -8,11 +8,13 @@ function inferenceServerPlugin(): Plugin {
   let serverProcess: ChildProcess | null = null
   let agentProcess: ChildProcess | null = null
 
+  const PYTHON = new URL('.venv/bin/python3', import.meta.url).pathname
+
   function spawnInferenceServer() {
     if (serverProcess && serverProcess.exitCode === null) return
     console.log('[vite] Spawning Python inference server…')
     serverProcess = spawn(
-      'python3',
+      PYTHON,
       ['drone-cv-system/server/inference_server.py'],
       { stdio: 'inherit', detached: false },
     )
@@ -26,7 +28,7 @@ function inferenceServerPlugin(): Plugin {
     if (agentProcess && agentProcess.exitCode === null) return
     console.log('[vite] Spawning Python agent server…')
     agentProcess = spawn(
-      'python3',
+      PYTHON,
       ['drone-cv-system/server/agent_server.py'],
       { stdio: 'inherit', detached: false },
     )
@@ -65,6 +67,27 @@ export default defineConfig({
     inferenceServerPlugin(),
   ],
   server: {
+    watch: {
+      // Only watch the frontend source — exclude Python, markdown, data files,
+      // and every non-src directory. Without this, Vite crawls the entire repo
+      // (drone-cv-system/, skills/, benchmark_results/, metrics/, etc.) and
+      // takes 200+ seconds to start up.
+      ignored: [
+        '**/node_modules/**',
+        '**/dist/**',
+        '**/drone-cv-system/**',
+        '**/skills/**',
+        '**/benchmark_results/**',
+        '**/metrics/**',
+        '**/*.py',
+        '**/*.md',
+        '**/*.yaml',
+        '**/*.yml',
+        '**/*.sh',
+        '**/*.csv',
+        '**/benchmark_suite.py',
+      ],
+    },
     proxy: {
       // Proxy /api/agent/* to agent server on port 8766
       '/api/agent': {
