@@ -223,11 +223,12 @@ async def health() -> dict[str, Any]:
 
 
 if __name__ == '__main__':
-    log.info('Starting inference server on ws://localhost:8765')
+    port = int(os.environ.get('PORT', '8765'))
+    log.info(f'Starting inference server on ws://0.0.0.0:{port}')
     uvicorn.run(
         app,
         host='0.0.0.0',
-        port=8765,
+        port=port,
         log_level='warning',  # suppress uvicorn access logs; our logger handles it
         ws_ping_interval=20,
         ws_ping_timeout=30,

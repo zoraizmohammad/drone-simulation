@@ -60,9 +60,7 @@ function inferenceServerPlugin(): Plugin {
   }
 }
 
-export default defineConfig(({ command }) => ({
-  // Use the repo-name sub-path on GitHub Pages; dev server stays at /
-  base: command === 'build' ? '/agentic-pollination-uav/' : '/',
+export default defineConfig({
   plugins: [
     tailwindcss(),
     preact(),
@@ -99,4 +97,4 @@ export default defineConfig(({ command }) => ({
       },
     },
   },
-}))
+})

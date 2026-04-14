@@ -42,7 +42,7 @@ export class AgentClient {
     onDecision: (d: AgentDecision) => void,
     onCommentary: (e: AgentCommentaryEntry) => void,
     onStatus: (s: AgentStatus) => void,
-    baseUrl = 'http://localhost:8766',
+    baseUrl = import.meta.env.VITE_AGENT_API_URL ?? 'http://localhost:8766',
   ) {
     this.onDecision = onDecision
     this.onCommentary = onCommentary

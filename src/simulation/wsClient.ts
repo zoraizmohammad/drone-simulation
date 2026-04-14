@@ -11,7 +11,7 @@ export interface WsMessage {
 type StatusCallback = (s: WsStatus) => void
 type MessageCallback = (r: InferenceResult) => void
 
-const WS_URL = 'ws://localhost:8765/inference'
+const WS_URL = import.meta.env.VITE_INFERENCE_WS_URL ?? 'ws://localhost:8765/inference'
 const MAX_BACKOFF_MS = 5000
 const INFERENCE_INTERVAL_MS = 100
 

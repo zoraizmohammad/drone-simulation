@@ -722,5 +722,6 @@ async def feedback(body: dict) -> dict:
 
 
 if __name__ == "__main__":
-    log.info("Starting agent server on http://localhost:8766")
-    uvicorn.run(app, host="0.0.0.0", port=8766, log_level="warning")
+    port = int(os.environ.get("PORT", "8766"))
+    log.info(f"Starting agent server on http://0.0.0.0:{port}")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
