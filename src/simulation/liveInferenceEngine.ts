@@ -153,7 +153,7 @@ export function useLiveInferenceEngine(): LiveInferenceState {
     const lfWithAgent: LiveFrame = {
       ...lf,
       agent: {
-        isConnected: agentStatus === 'connected',
+        isConnected: agentRef.current?.getStatus() === 'connected',
         lastDecision: lastDecisionRef.current,
         commentary: commentaryRef.current,
         agentMs: agentMsRef.current,
@@ -176,7 +176,7 @@ export function useLiveInferenceEngine(): LiveInferenceState {
       return
     }
     rafRef.current = requestAnimationFrame(tick)
-  }, [agentStatus])
+  }, [])
 
   const start = useCallback(async () => {
     // Reset terminal
@@ -254,7 +254,9 @@ export function useLiveInferenceEngine(): LiveInferenceState {
     start()
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      if (termSyncRef.current) { clearInterval(termSyncRef.current); termSyncRef.current = null }
       wsRef.current?.disconnect()
+      agentRef.current?.disconnect()
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 

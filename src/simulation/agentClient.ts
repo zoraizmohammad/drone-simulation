@@ -32,6 +32,11 @@ export class AgentClient {
   private terminalWs: WebSocket | null = null
   private terminalReconnectTimer: ReturnType<typeof setTimeout> | null = null
   private onTerminalEvent: ((type: TerminalEntryType, text: string) => void) | null = null
+  // Exponential backoff for terminal WS — stops retrying after persistent failures
+  // (e.g. uvicorn missing WebSocket support: "pip install uvicorn[standard]")
+  private terminalFailCount = 0
+  private static readonly TERMINAL_MAX_FAILS = 5
+  private static readonly TERMINAL_BACKOFF_MS = [3000, 6000, 12000, 30000, 60000]
 
   constructor(
     onDecision: (d: AgentDecision) => void,
@@ -47,6 +52,7 @@ export class AgentClient {
   }
 
   connect() {
+    this.terminalFailCount = 0
     this.setStatus('connecting')
     this.healthCheckInterval = setInterval(() => this.checkHealth(), 3000)
     this.checkHealth()
@@ -188,6 +194,7 @@ export class AgentClient {
       this.terminalWs = ws
 
       ws.onopen = () => {
+        this.terminalFailCount = 0  // reset backoff on successful connect
         this.onTerminalEvent?.('agent', 'TERMINAL-WS  connected — LangChain callback stream active')
       }
 
@@ -203,10 +210,15 @@ export class AgentClient {
 
       ws.onclose = () => {
         this.terminalWs = null
-        // Auto-reconnect every 3s while agent is connected
-        if (this.status === 'connected') {
-          this.terminalReconnectTimer = setTimeout(() => this.openTerminalWs(), 3000)
-        }
+        if (this.status !== 'connected') return
+        // Stop retrying after TERMINAL_MAX_FAILS consecutive failures —
+        // prevents log spam when uvicorn WebSocket support is not installed.
+        if (this.terminalFailCount >= AgentClient.TERMINAL_MAX_FAILS) return
+        const delay = AgentClient.TERMINAL_BACKOFF_MS[
+          Math.min(this.terminalFailCount, AgentClient.TERMINAL_BACKOFF_MS.length - 1)
+        ]
+        this.terminalFailCount++
+        this.terminalReconnectTimer = setTimeout(() => this.openTerminalWs(), delay)
       }
 
       ws.onerror = () => {
