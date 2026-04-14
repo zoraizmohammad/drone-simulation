@@ -269,6 +269,14 @@ export function generateMission(): ReplayFrame[] {
     flowerConfidence[f.id] = 0
   }
 
+  // Precompute pollinating segment end-times keyed by flowerId — avoids O(n) search per frame
+  const pollinatingEndTime: Record<string, number> = {}
+  for (const seg of timeline) {
+    if (seg.flowerId && seg.phase === 'pollinating') {
+      pollinatingEndTime[seg.flowerId] = seg.endTime
+    }
+  }
+
   const confidenceHistories: Record<string, number[]> = {}
   let globalConfidenceHistory: number[] = []
 
@@ -413,23 +421,19 @@ export function generateMission(): ReplayFrame[] {
       }
     }
 
-    // After pollination, mark as pollinated
-    for (const seg2 of timeline) {
-      if (seg2.flowerId && time > seg2.endTime && seg2.phase === 'pollinating') {
-        if (flowerStates[seg2.flowerId] !== 'pollinated') {
-          flowerStates[seg2.flowerId] = 'pollinated'
-        }
-        if (!pollinatedFlowerIds.includes(seg2.flowerId)) {
-          pollinatedFlowerIds.push(seg2.flowerId)
-        }
+    // After pollination, mark as pollinated (O(1) lookup via precomputed map)
+    for (const [fid, endTime] of Object.entries(pollinatingEndTime)) {
+      if (time > endTime) {
+        if (flowerStates[fid] !== 'pollinated') flowerStates[fid] = 'pollinated'
+        if (!pollinatedFlowerIds.includes(fid)) pollinatedFlowerIds.push(fid)
       }
     }
 
     // Track pollinated flowers for current frame
     const currentPollinated: string[] = []
     for (const fid of TARGET_FLOWER_IDS) {
-      const visitSeg = timeline.find(s => s.flowerId === fid && s.phase === 'pollinating')
-      if (visitSeg && time > visitSeg.endTime) {
+      const endTime = pollinatingEndTime[fid]
+      if (endTime !== undefined && time > endTime) {
         currentPollinated.push(fid)
         if (flowerStates[fid] !== 'pollinated') flowerStates[fid] = 'pollinated'
       }
